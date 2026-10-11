@@ -1,1 +1,2226 @@
 
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#0a0f0a">
+<title>SIZ.EXE</title>
+<style>
+/* ============ TEMEL ============ */
+:root{
+  --bg:#0a0f0a; --g:#00ff66; --gd:#0b8a45; --gm:#10381f;
+  --r:#ff3355; --a:#ffb000; --c:#00e5ff; --panel:#0d1a11;
+  --vh:1vh;
+  --mono: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, "Roboto Mono", "DejaVu Sans Mono", "Liberation Mono", "Courier New", monospace;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+html,body{margin:0;padding:0;height:100%;background:#040704;overflow:hidden;overscroll-behavior:none;touch-action:none;font-family:var(--mono);color:var(--g)}
+button{font:inherit;color:inherit;background:none;border:0;padding:0;margin:0;cursor:pointer;touch-action:none;outline:none}
+h1,h2,p{margin:0}
+
+#app{
+  position:relative;width:100%;max-width:430px;min-width:320px;margin:0 auto;overflow:hidden;
+  display:flex;flex-direction:column;background:var(--bg);
+  height:100vh;                          /* eski tarayıcılar */
+  height:calc(var(--vh,1vh)*100);        /* JS ile ölçülen yükseklik */
+  height:100dvh;                         /* modern tarayıcılar */
+  overscroll-behavior:none;touch-action:none;
+}
+@media (min-width:431px){ #app{box-shadow:0 0 0 1px rgba(0,255,102,.3),0 0 60px rgba(0,255,102,.1)} }
+
+/* scanline + tarama çubuğu (hafif) */
+#app::after{content:'';position:absolute;top:0;left:0;right:0;bottom:0;pointer-events:none;z-index:50;
+  background:repeating-linear-gradient(to bottom,rgba(0,0,0,0) 0,rgba(0,0,0,0) 2px,rgba(0,0,0,.2) 3px);opacity:.45}
+#scanbar{position:absolute;left:0;right:0;top:0;height:90px;pointer-events:none;z-index:49;
+  background:linear-gradient(to bottom,rgba(0,255,102,0),rgba(0,255,102,.05),rgba(0,255,102,0));
+  transform:translateY(-100px);animation:scan 7s linear infinite;will-change:transform}
+@keyframes scan{to{transform:translateY(105vh)}}
+
+/* ============ HUD ============ */
+#hud{position:relative;z-index:30;flex:none;display:grid;grid-template-columns:auto 1fr auto 48px;align-items:center;gap:8px;
+  height:calc(56px + env(safe-area-inset-top,0px));padding:env(safe-area-inset-top,0px) 4px 0 12px;
+  border-bottom:1px solid var(--gm);background:#0a0f0a}
+#hud.idle .h-dots,#hud.idle .h-scorew,#hud.idle .h-lives{visibility:hidden}
+.h-dots{display:flex;gap:5px}
+.dot{display:block;width:11px;height:11px;border-radius:50%;border:2px solid var(--gd)}
+.dot.full{background:var(--g);border-color:var(--g);box-shadow:0 0 6px var(--g)}
+.dot.cur{background:var(--g);border-color:var(--g);animation:blink 1s steps(1) infinite}
+.h-scorew{position:relative;text-align:center}
+.h-score{display:inline-block;font-size:22px;font-weight:900;letter-spacing:.08em;text-shadow:0 0 8px rgba(0,255,102,.6);font-variant-numeric:tabular-nums}
+.h-score.pop{animation:pop .25s ease-out}
+@keyframes pop{50%{transform:scale(1.25)}}
+.fl{position:absolute;left:50%;top:100%;white-space:nowrap;font-weight:900;font-size:16px;pointer-events:none;text-shadow:0 0 8px currentColor;animation:fl 1s ease-out forwards}
+@keyframes fl{from{opacity:1;transform:translate(-50%,0)}to{opacity:0;transform:translate(-50%,20px)}}
+.h-lives{display:flex;gap:3px}
+.h-lives.hit{animation:shake .35s}
+.heart svg{display:block;width:20px;height:20px;fill:var(--r);filter:drop-shadow(0 0 4px var(--r))}
+.heart.lost svg{fill:none;stroke:var(--gd);stroke-width:1.5;filter:none;opacity:.5}
+.h-mute{width:48px;height:48px;display:grid;place-items:center;color:var(--g)}
+.h-mute svg{width:26px;height:26px}
+
+/* ============ ORTAK ============ */
+#stage{position:relative;flex:1;min-height:0;overflow:hidden}
+.screen{position:absolute;top:0;left:0;right:0;bottom:0;display:flex;flex-direction:column;align-items:center;
+  padding:16px 16px calc(16px + env(safe-area-inset-bottom,0px));animation:fin .25s ease-out}
+@keyframes fin{from{opacity:0}to{opacity:1}}
+@keyframes blink{50%{opacity:0}}
+@keyframes shake{0%,100%{transform:translateX(0)}20%{transform:translateX(-6px)}40%{transform:translateX(6px)}60%{transform:translateX(-4px)}80%{transform:translateX(4px)}}
+/* DÜZELTME: eskiden ".cur" idi; HUD noktası, round işareti, phishing ilerleme çubuğu ve Katman 6'nın aktif satırı da
+   "cur" sınıfını kullandığı için bu imleç stili onlara da bulaşıyordu (aktif tahmin satırı küçülüp yanıp sönüyordu). */
+.caret{display:inline-block;width:.55em;height:1em;background:currentColor;margin-left:8px;vertical-align:-.12em;animation:blink 1s steps(1) infinite}
+
+.btn{min-height:52px;min-width:48px;padding:0 20px;border:2px solid var(--g);border-radius:6px;color:var(--g);
+  background:rgba(0,255,102,.06);font-weight:800;letter-spacing:.12em;font-size:16px;transition:transform .08s,background .08s,opacity .25s}
+.btn.press{transform:scale(.96);background:rgba(0,255,102,.28)}
+.btn.primary{background:var(--g);color:#031a0c;box-shadow:0 0 18px rgba(0,255,102,.45)}
+.btn.primary.press{background:#7dffb2}
+.btn[disabled]{opacity:.3;pointer-events:none}
+.press{transform:scale(.97)}
+
+/* glitch başlık */
+.glitch{position:relative;display:inline-block;font-weight:900;letter-spacing:.06em;text-shadow:0 0 14px rgba(0,255,102,.6)}
+.glitch::before,.glitch::after{content:attr(data-text);position:absolute;left:0;top:0;width:100%;pointer-events:none;text-shadow:none}
+.glitch::before{color:var(--c);transform:translateX(-3px);clip-path:inset(0 0 100% 0);animation:gl1 3.2s steps(1) infinite}
+.glitch::after{color:var(--r);transform:translateX(3px);clip-path:inset(100% 0 0 0);animation:gl2 3.2s steps(1) infinite}
+@keyframes gl1{0%,86%{clip-path:inset(0 0 100% 0)}87%{clip-path:inset(10% 0 62% 0)}90%{clip-path:inset(58% 0 18% 0)}93%{clip-path:inset(30% 0 42% 0)}96%,100%{clip-path:inset(0 0 100% 0)}}
+@keyframes gl2{0%,87%{clip-path:inset(100% 0 0 0)}88%{clip-path:inset(60% 0 12% 0)}91%{clip-path:inset(15% 0 60% 0)}94%{clip-path:inset(42% 0 30% 0)}97%,100%{clip-path:inset(100% 0 0 0)}}
+
+/* flash mesajı */
+#flash{position:absolute;left:0;right:0;top:36%;z-index:40;text-align:center;pointer-events:none;opacity:0;--fc:var(--g)}
+#flash span{display:inline-block;max-width:92%;padding:10px 18px;border:2px solid var(--fc);color:var(--fc);background:rgba(10,15,10,.92);
+  font-weight:900;font-size:clamp(22px,7.5vw,32px);letter-spacing:.08em;box-shadow:0 0 22px var(--fc);text-shadow:0 0 10px var(--fc)}
+#flash.show{animation:flash .85s ease-out forwards}
+@keyframes flash{0%{opacity:0;transform:scale(.8)}12%{opacity:1;transform:scale(1.06)}22%{transform:scale(1)}80%{opacity:1}100%{opacity:0;transform:scale(1)}}
+
+/* ============ EKRANLAR ============ */
+.intro{justify-content:center;text-align:center;gap:26px}
+.logo{font-size:clamp(46px,17vw,76px)}
+.story{font-size:16px;letter-spacing:.14em;line-height:1.7;color:#9dffc4}
+.intro .btn{width:78%;min-height:64px;font-size:20px}
+.best{font-size:12px;letter-spacing:.2em;color:var(--gd);min-height:16px}
+
+.h2{font-size:24px;letter-spacing:.1em;margin-top:6px}
+.chips{display:grid;grid-template-columns:1fr 1fr;gap:10px;width:100%;margin:18px 0}
+.chip{min-height:60px;border:2px solid var(--gd);border-radius:6px;font-weight:800;font-size:15px;letter-spacing:.06em;color:var(--g);background:rgba(0,255,102,.04);transition:transform .08s}
+.chip.sel{background:var(--g);color:#031a0c;border-color:var(--g);box-shadow:0 0 14px rgba(0,255,102,.5)}
+.nick .btn{width:100%;margin-top:auto}
+
+.trans{justify-content:center;text-align:center;gap:14px}
+.tr-n{font-size:clamp(44px,15vw,64px)}
+.tr-u{font-size:clamp(22px,7vw,30px);font-weight:900;letter-spacing:.3em;color:var(--c);text-shadow:0 0 12px var(--c)}
+.tr-name{font-size:14px;letter-spacing:.2em;color:var(--gd);min-height:18px}
+.tprog{width:70%;height:6px;background:var(--gm);border-radius:3px;overflow:hidden;margin-top:14px}
+.tprog i{display:block;height:100%;background:var(--g);transform-origin:left;transform:scaleX(0);animation:fillbar linear forwards}
+@keyframes fillbar{to{transform:scaleX(1)}}
+
+.final{justify-content:center;text-align:center;padding:0}
+.final canvas{position:absolute;top:0;left:0;width:100%;height:100%;opacity:.5}
+.fin-body{position:relative;z-index:2;width:100%;padding:16px 18px calc(16px + env(safe-area-inset-bottom,0px));display:flex;flex-direction:column;align-items:center;gap:14px}
+.fin-t{font-size:clamp(34px,11.5vw,50px);line-height:1.05}
+.fin-nick{font-size:20px;font-weight:800;letter-spacing:.12em;color:var(--c);text-shadow:0 0 10px var(--c);background:rgba(10,15,10,.8);padding:2px 10px}
+.fin-panel{width:100%;background:rgba(10,15,10,.86);border:2px solid var(--gd);border-radius:8px;padding:10px 14px;display:flex;flex-direction:column;gap:8px}
+.fin-row{display:flex;justify-content:space-between;align-items:baseline;font-size:13px;letter-spacing:.2em;color:var(--gd)}
+.fin-row b{font-size:22px;letter-spacing:.06em;color:var(--g);font-variant-numeric:tabular-nums}
+.fin-row b.rank{color:var(--a);text-shadow:0 0 10px rgba(255,176,0,.6)}
+.fin-code{width:100%;background:rgba(10,15,10,.9);border:2px dashed var(--a);border-radius:8px;padding:8px;display:flex;flex-direction:column;gap:2px}
+.fin-code span{font-size:11px;letter-spacing:.3em;color:var(--a)}
+.fin-code b{font-size:clamp(34px,12vw,48px);letter-spacing:.3em;margin-right:-.3em;color:var(--a);text-shadow:0 0 14px rgba(255,176,0,.6)}
+.fin-new{font-size:12px;letter-spacing:.2em;color:var(--c);min-height:14px}
+.final .btn{width:100%}
+.foot{font-size:11px;letter-spacing:.18em;color:var(--gd);background:rgba(10,15,10,.8);padding:2px 8px}
+
+/* ============ KATMAN ÇERÇEVESİ ============ */
+.layer{padding:0;align-items:stretch}
+.lhead{flex:none;display:flex;justify-content:space-between;align-items:center;padding:8px 16px;font-size:12px;letter-spacing:.16em;color:var(--gd);min-height:36px}
+.pips{display:flex;gap:8px}
+.pip{width:9px;height:9px;border:2px solid var(--gd);transform:rotate(45deg)}
+.pip.full{background:var(--g);border-color:var(--g)}
+.pip.cur{border-color:var(--a);animation:blink 1s steps(1) infinite}
+.play{position:relative;flex:1;min-height:0;display:flex;flex-direction:column;padding:0 14px}
+.dock{flex:none;display:flex;align-items:center;gap:12px;padding:8px 14px calc(8px + env(safe-area-inset-bottom,0px));border-top:1px solid var(--gm)}
+.hintbtn{min-width:104px;font-size:18px;padding:0 14px}
+.hintbtn[data-n="0"]{opacity:.35}
+.hintbtn b{color:var(--a)}
+
+@keyframes pulse{50%{box-shadow:0 0 0 4px var(--c);border-color:var(--c)}}
+
+/* ============ KATMAN 1: BINARY ============ */
+.l1{flex:1;min-height:0;display:flex;flex-direction:column;gap:10px;padding-top:2px}
+.l1-top{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.box{border:2px solid var(--gm);border-radius:8px;padding:6px 8px 8px;text-align:center;background:var(--panel)}
+.box .lbl{font-size:11px;letter-spacing:.24em;color:var(--gd)}
+.box .num{font-size:clamp(38px,12vw,52px);font-weight:900;line-height:1.05;font-variant-numeric:tabular-nums}
+.box .bin{font-size:12px;letter-spacing:.18em;color:var(--gd);min-height:15px;white-space:pre}
+.box.target{border-color:var(--a)}
+.box.target .num{color:var(--a);text-shadow:0 0 14px rgba(255,176,0,.5)}
+.box.sum .num{color:var(--c)}
+.box.sum.over .num{color:var(--r)}
+.box.sum.over{border-color:var(--r)}
+.box.sum.hit .num{color:var(--g);text-shadow:0 0 14px rgba(0,255,102,.7)}
+.box.sum.hit{border-color:var(--g);box-shadow:0 0 16px rgba(0,255,102,.45)}
+.box.shake{animation:shake .35s}
+.tbar{flex:none;height:8px;border-radius:4px;background:var(--gm);overflow:hidden;visibility:hidden}
+.tbar.on{visibility:visible}
+.tbar i{display:block;height:100%;background:var(--a);transform-origin:left;transform:scaleX(1)}
+.tbar.low i{background:var(--r)}
+.l1-sw{flex:1;min-height:0;display:grid;gap:8px;grid-auto-rows:minmax(92px,150px);align-content:center}
+.swc{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;border:2px solid var(--gm);border-radius:8px;background:var(--panel);transition:transform .08s}
+.swc .track{position:relative;display:block;width:38px;height:62px;border-radius:19px;border:2px solid var(--gd);background:#07110a}
+.swc .knob{position:absolute;left:3px;bottom:3px;width:28px;height:28px;border-radius:50%;background:var(--gd);transition:transform .12s,background .12s}
+.swc .val{font-size:20px;font-weight:900;color:var(--gd)}
+.swc.on{border-color:var(--g);background:#0b2415}
+.swc.on .track{border-color:var(--g);background:rgba(0,255,102,.2)}
+.swc.on .knob{transform:translateY(-24px);background:var(--g);box-shadow:0 0 12px var(--g)}
+.swc.on .val{color:var(--g)}
+.swc.hint{animation:pulse .5s ease-in-out 3}
+#l1go{flex:none;width:100%;min-height:56px;font-size:18px}
+#l1go.ready{background:var(--g);color:#031a0c;animation:glow .7s ease-in-out infinite alternate}
+#l1go.hint{animation:pulse .5s ease-in-out 3}
+@keyframes glow{to{box-shadow:0 0 22px var(--g)}}
+
+/* ============ KATMAN 2: KABLO ============ */
+.l2{position:relative;flex:1;min-height:0;touch-action:none}
+.l2 svg.wires{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;overflow:visible}
+.col{position:absolute;top:0;bottom:0;width:64px;display:flex;flex-direction:column;justify-content:space-evenly;align-items:center}
+.col.L{left:0}
+.col.R{right:0}
+.node{position:relative;width:56px;height:56px;border-radius:50%;border:3px solid var(--nc);background:rgba(0,0,0,.6);display:grid;place-items:center;color:var(--nc);
+  box-shadow:0 0 8px var(--nc);transition:transform .1s,background .15s}
+.node svg{width:26px;height:26px;fill:currentColor;pointer-events:none}
+.node.active{transform:scale(1.14)}
+.node.done{background:var(--nc);color:#031a0c}
+.node.bad{border-color:var(--r);animation:shake .3s}
+.node.hint{animation:nhint .5s ease-in-out 4}
+@keyframes nhint{50%{transform:scale(1.25);box-shadow:0 0 18px var(--nc),0 0 0 4px #fff}}
+.spark{position:absolute;width:0;height:0;pointer-events:none;z-index:5}
+.spark i{position:absolute;left:-3px;top:-3px;width:6px;height:6px;border-radius:50%;background:#fff;box-shadow:0 0 8px var(--a),0 0 3px var(--r);animation:sp .45s ease-out forwards}
+@keyframes sp{from{transform:translate(0,0) scale(1);opacity:1}to{transform:translate(var(--dx),var(--dy)) scale(.2);opacity:0}}
+
+/* ============ ÖĞRETİCİ PARMAK ============ */
+.tut{position:absolute;top:0;left:0;right:0;bottom:0;z-index:20;background:rgba(10,15,10,.4);overflow:hidden}
+.finger{position:absolute;left:0;top:0;font-size:46px;line-height:1;opacity:0;pointer-events:none;
+  transition:transform .6s cubic-bezier(.4,0,.2,1),opacity .25s;will-change:transform;filter:drop-shadow(0 0 8px var(--g));z-index:3}
+.finger span{display:block;transition:transform .12s}
+.finger.press span{transform:scale(.78)}
+.rip{position:absolute;width:20px;height:20px;margin:-10px 0 0 -10px;border:3px solid var(--g);border-radius:50%;pointer-events:none;animation:rip .55s ease-out forwards;z-index:2}
+@keyframes rip{from{transform:scale(.4);opacity:1}to{transform:scale(3);opacity:0}}
+.dwire{position:absolute;height:6px;margin-top:-3px;border-radius:3px;transform-origin:0 50%;pointer-events:none;z-index:1}
+
+/* ============ KATMAN 3: SİNYAL HAFIZASI ============ */
+.l3{flex:1;min-height:0;display:flex;flex-direction:column;gap:10px;padding-top:2px}
+.l3-top{flex:none;display:flex;justify-content:space-between;align-items:center;min-height:34px}
+.l3-st{font-size:18px;font-weight:900;letter-spacing:.2em;color:var(--a)}
+.l3-st.go{color:var(--g)}
+.l3-dots{display:flex;gap:6px}
+.l3-dots i{display:block;width:12px;height:12px;border:2px solid var(--gd);border-radius:2px}
+.l3-dots i.full{background:var(--g);border-color:var(--g)}
+.l3-pads{flex:1;min-height:0;display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;gap:12px;padding-bottom:4px}
+.pad{position:relative;display:flex;align-items:center;justify-content:center;border:3px solid var(--pc);border-radius:16px;background:#07110a;color:var(--pc);overflow:hidden;transition:transform .08s}
+.pad::before{content:'';position:absolute;top:0;left:0;right:0;bottom:0;background:var(--pc);opacity:.1}
+.pad svg{position:relative;width:34%;max-width:64px;fill:currentColor}
+.pad.lit{color:#031a0c;box-shadow:0 0 30px var(--pc)}
+.pad.lit::before{opacity:.95}
+.pad.bad{border-color:var(--r);animation:shake .3s}
+.pad.hint{animation:pulse .5s ease-in-out 3}
+
+/* ============ KATMAN 4: PHISHING AVCISI ============ */
+.l4{flex:1;min-height:0;display:flex;flex-direction:column;gap:10px;padding-top:2px}
+.l4-prog{flex:none;display:flex;gap:6px}
+.l4-prog i{flex:1;height:8px;border-radius:4px;background:var(--gm)}
+.l4-prog i.cur{background:var(--gd)}
+.l4-prog i.ok{background:var(--g)}
+.l4-prog i.no{background:var(--r)}
+.l4-area{position:relative;flex:1;min-height:0;display:flex;align-items:center;justify-content:center}
+.l4-edge{position:absolute;top:0;bottom:0;width:50%;display:flex;align-items:center;font-size:20px;font-weight:900;letter-spacing:.1em;opacity:0;pointer-events:none}
+.l4-edge.L{left:0;justify-content:flex-start;padding-left:8px;color:var(--r);background:linear-gradient(to right,rgba(255,51,85,.3),rgba(255,51,85,0))}
+.l4-edge.R{right:0;justify-content:flex-end;padding-right:8px;color:var(--g);background:linear-gradient(to left,rgba(0,255,102,.3),rgba(0,255,102,0))}
+.l4-card{position:relative;z-index:2;width:100%;max-width:340px;min-height:170px;padding:16px 14px 18px;border:2px solid var(--gd);border-radius:14px;background:var(--panel);
+  text-align:center;touch-action:none;will-change:transform;display:flex;flex-direction:column;justify-content:center;gap:14px}
+.l4-kind{font-size:12px;letter-spacing:.3em;color:var(--c)}
+.l4-txt{font-size:clamp(19px,6vw,25px);font-weight:800;letter-spacing:.02em;line-height:1.3;word-break:break-all;color:#e6ffee}
+.l4-card.ok{border-color:var(--g);box-shadow:0 0 20px rgba(0,255,102,.5)}
+.l4-card.no{border-color:var(--r);box-shadow:0 0 20px rgba(255,51,85,.5);animation:shake .3s}
+.l4-btns{flex:none;display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.l4-btns .btn{min-height:56px;font-size:15px;letter-spacing:.08em;padding:0 8px}
+.l4-btns .fake{border-color:var(--r);color:var(--r);background:rgba(255,51,85,.08)}
+.l4-btns .btn.hint{animation:pulse .5s ease-in-out 3}
+
+/* ============ KATMAN 5: FIREWALL KOŞUSU ============ */
+.l5w{flex:1;min-height:0;display:flex;flex-direction:column;gap:8px;padding-top:2px}
+.l5{position:relative;flex:1;min-height:0;overflow:hidden;border:2px solid var(--gm);border-radius:8px;background:var(--panel);touch-action:none}
+.l5.slow{border-color:var(--c);box-shadow:inset 0 0 40px rgba(0,229,255,.3)}
+.l5.shake{animation:shake .35s}
+.l5-lanes{position:absolute;top:0;bottom:0;left:0;right:0;display:flex;pointer-events:none}
+.lane{flex:1;border-right:1px dashed var(--gm)}
+.lane:last-child{border-right:0}
+.wall{position:absolute;left:0;right:0;top:0;display:flex;will-change:transform;pointer-events:none}
+.wc{flex:1;margin:3px;border:2px solid var(--r);border-radius:4px;background:repeating-linear-gradient(45deg,rgba(255,51,85,.4) 0,rgba(255,51,85,.4) 6px,rgba(255,51,85,.1) 6px,rgba(255,51,85,.1) 12px)}
+.wc.g{border:2px dashed rgba(0,255,102,.5);background:rgba(0,255,102,.08)}
+.wall.hit .wc{opacity:.3}
+.pkt{position:absolute;left:0;top:0;border:3px solid var(--c);border-radius:8px;background:rgba(0,229,255,.18);box-shadow:0 0 14px var(--c);transition:transform .09s ease-out;pointer-events:none}
+.pkt::after{content:'';position:absolute;top:9px;left:9px;right:9px;bottom:9px;background:var(--c)}
+.pkt.inv{animation:blink .16s steps(1) infinite}
+
+/* ============ KATMAN 6: ŞİFRE KIR ============ */
+.l6{flex:1;min-height:0;display:flex;flex-direction:column;gap:8px;padding-top:2px}
+.l6-secret{flex:none;height:40px;display:grid;grid-template-columns:repeat(var(--n),1fr) 56px;gap:6px;padding:0 6px}
+.l6-leg{display:flex;flex-direction:column;justify-content:center;font-size:10px;letter-spacing:.06em;color:var(--gd);line-height:1.35;white-space:nowrap}
+.l6-leg b{color:var(--g)}
+.l6-leg u{color:var(--a);text-decoration:none}
+.l6-board{flex:1;min-height:0;display:grid;gap:5px;align-content:center}
+.l6-row{display:grid;grid-template-columns:repeat(var(--n),1fr) 56px;gap:6px;padding:0 4px;border:2px solid transparent;border-radius:8px;align-items:stretch;min-height:0}
+.l6-row.cur{border-color:var(--a)}
+.l6-slot{display:flex;align-items:center;justify-content:center;min-height:0;padding:0;border:2px solid var(--gm);border-radius:6px;background:rgba(0,0,0,.35);color:var(--gd);font-weight:900;font-size:18px}
+.l6-slot svg{width:18px;height:18px;fill:currentColor}
+.l6-slot.hinted{border-color:var(--c)}
+.l6-slot.rev{border-color:var(--g)}
+.l6-slot.rev.bad{border-color:var(--r)}
+.l6-row.cur .l6-slot{border-color:var(--gd)}
+.l6-fb{display:grid;grid-template-columns:1fr 1fr;gap:3px;align-content:center;padding:0 8px}
+.peg{display:block;width:11px;height:11px;margin:auto;border-radius:50%;border:2px solid var(--gm)}
+.peg.b{background:var(--g);border-color:var(--g);box-shadow:0 0 6px var(--g)}
+.peg.w{border-color:var(--a)}
+.l6-pal{flex:none;display:flex;gap:8px}
+.pbtn{flex:1;min-height:52px;display:flex;align-items:center;justify-content:center;border:2px solid var(--pc);border-radius:10px;background:rgba(0,0,0,.4);color:var(--pc);transition:transform .08s}
+.pbtn svg{width:26px;height:26px;fill:currentColor}
+.l6-act{flex:none;display:flex;gap:10px}
+#l6u{flex:0 0 30%;min-height:52px;padding:0 6px;font-size:14px}
+#l6g{flex:1;min-height:52px;font-size:18px}
+#l6g.ready{background:var(--g);color:#031a0c;animation:glow .7s ease-in-out infinite alternate}
+#l6g.shake{animation:shake .3s}
+.l6-key{flex:none;display:flex;justify-content:space-between;padding:0 8px;font-size:10px;letter-spacing:.08em;color:var(--gd);white-space:nowrap}
+.l6-key b{color:var(--g)}
+.l6-key u{color:var(--a);text-decoration:none}
+
+/* "nasıl oynanır" kartı */
+.l6-help{position:absolute;top:0;left:0;right:0;bottom:0;z-index:25;display:flex;flex-direction:column;gap:9px;padding:4px 14px 2px;
+  background:var(--bg);touch-action:none;animation:fin .2s ease-out}
+.hx-t{flex:none;text-align:center;font-size:15px;font-weight:900;letter-spacing:.12em;color:var(--a)}
+.hx-s{flex:none;display:flex;gap:9px;align-items:flex-start;font-size:13px;line-height:1.45;color:#c9ffe0}
+.hx-s b{color:var(--g)}
+.hx-n{flex:none;display:grid;place-items:center;width:20px;height:20px;margin-top:1px;border:2px solid var(--a);border-radius:5px;font-style:normal;font-size:11px;font-weight:900;color:var(--a)}
+.hx-ex{flex:none;display:flex;flex-direction:column;gap:6px;padding:8px 10px;border:2px solid var(--gm);border-radius:8px;background:var(--panel)}
+.hx-row{display:flex;align-items:center;gap:6px;font-size:10px;letter-spacing:.12em;color:var(--gd)}
+.hx-row .lbl{flex:0 0 52px}
+.hx-sym{display:flex;align-items:center;justify-content:center;width:34px;height:30px;border:2px solid var(--gm);border-radius:6px;background:rgba(0,0,0,.35)}
+.hx-sym svg{width:16px;height:16px;fill:currentColor}
+.hx-sym.ok{border-color:var(--g)}
+.hx-sym.mv{border-color:var(--a)}
+.hx-row .l6-fb{margin-left:auto;width:52px;padding:0 4px}
+.hx-leg{font-size:12px;line-height:1.4;color:#c9ffe0}
+.hx-leg b{color:var(--g)}
+.hx-leg u{color:var(--a);text-decoration:none;font-weight:900}
+#l6ok{flex:none;margin-top:auto;min-height:52px;font-size:17px}
+@media (max-height:700px){
+  .l6-help{gap:7px}
+  .hx-s{font-size:12px;line-height:1.4}
+  .hx-leg{font-size:11px}
+}
+
+/* ============ FİNAL EKRANI (ek) ============ */
+@keyframes rise{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+@keyframes stamp{0%{opacity:0;transform:scale(2.2)}60%{opacity:1;transform:scale(.94)}100%{opacity:1;transform:scale(1)}}
+.rv{animation:rise .45s ease-out both}
+.fin-row b.rank{animation:stamp .5s ease-out both;animation-delay:.85s}
+.fin-code b{display:block}
+.btn.hold{position:relative;overflow:hidden;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px}
+.btn.hold .hfill{position:absolute;top:0;left:0;bottom:0;right:0;background:rgba(255,255,255,.55);transform-origin:left;transform:scaleX(0)}
+.btn.hold span,.btn.hold small{position:relative}
+.btn.hold small{font-size:10px;letter-spacing:.25em;opacity:.7}
+@media (max-height:700px){
+  .fin-body{gap:8px;padding-top:8px}
+  .fin-t{font-size:clamp(28px,9.5vw,40px)}
+  .fin-panel{padding:8px 12px;gap:5px}
+  .fin-row b{font-size:18px}
+  .fin-code b{font-size:clamp(28px,9vw,38px)}
+  .l6-secret{height:34px}
+  .l6-pal .pbtn,.l6-act .btn{min-height:48px}
+}
+
+/* ============ KAYBETTİN EKRANI ============ */
+.lose{justify-content:center;text-align:center;gap:14px;box-shadow:inset 0 0 90px rgba(255,51,85,.22)}
+.lose-t{font-size:clamp(34px,11.5vw,52px);line-height:1.05;color:var(--r);text-shadow:0 0 16px rgba(255,51,85,.7)}
+.lose-hearts{display:flex;gap:10px;justify-content:center}
+.lose-hearts .heart svg{width:34px;height:34px}
+.lose-hearts .heart.lost svg{stroke:var(--r);stroke-width:1.6;opacity:.85}
+.lose-sub{font-size:13px;letter-spacing:.18em;line-height:1.7;color:#ff8da0}
+.lose-nick{font-size:20px;font-weight:800;letter-spacing:.12em;color:var(--c);text-shadow:0 0 10px var(--c)}
+.lose .fin-panel{border-color:#5c1624}
+.lose .btn{width:100%;min-height:60px;font-size:18px}
+@media (max-height:700px){
+  .lose{gap:9px}
+  .lose-hearts .heart svg{width:28px;height:28px}
+}
+
+/* ============ DEBUG ============ */
+#dbgBtn{position:absolute;right:8px;bottom:calc(8px + env(safe-area-inset-bottom,0px));z-index:90;min-width:48px;min-height:48px;opacity:.55;
+  border:1px dashed var(--a);color:var(--a);background:rgba(0,0,0,.6);font-size:12px;font-weight:800}
+#dbg{position:absolute;top:0;left:0;right:0;bottom:0;z-index:95;background:rgba(5,10,6,.97);padding:16px;display:flex;flex-direction:column;gap:12px}
+#dbg[hidden]{display:none}
+.dbg-t{font-size:18px;font-weight:900;letter-spacing:.2em;color:var(--a)}
+.dbg-g{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.dbg-g .btn{padding:0 4px;font-size:13px;letter-spacing:.04em}
+
+@media (max-height:600px){
+  .box .num{font-size:34px}
+  .l1-sw{grid-auto-rows:minmax(84px,150px)}
+  .swc .track{height:56px}
+}
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="scanbar"></div>
+  <header id="hud" class="idle">
+    <div id="hDots" class="h-dots"></div>
+    <div id="hScoreW" class="h-scorew"><span id="hScore" class="h-score">00000</span></div>
+    <div id="hLives" class="h-lives"></div>
+    <button id="hMute" class="h-mute" aria-label="Ses"></button>
+  </header>
+  <main id="stage"></main>
+  <div id="flash"><span></span></div>
+</div>
+
+<script>
+'use strict';
+/* =====================================================================
+   SIZ.EXE — tek dosyalık hacker web oyunu
+   YENİ KATMAN EKLEMEK İÇİN:
+     1) CONFIG.layerN altına ayarlarını ekle
+     2) {id, name, init(ctx), start(), destroy()} arayüzüne sahip bir obje yaz
+     3) Layers dizisine ekle (debug menüsü ve HUD noktaları otomatik güncellenir)
+   ctx (katmana verilen API):
+     ctx.root            → oyun alanı (DOM)        ctx.replay → katman yeniden başladı mı
+     ctx.locked          → true iken girdi alma    ctx.dead   → katman yok edildi mi
+     ctx.after(ms, fn)   → katmanla birlikte temizlenen setTimeout
+     ctx.setRound(i, n)  → round göstergesi        ctx.setHint(fn) → ipucu işleyicisi (false dönerse hak harcanmaz)
+     ctx.award(taban, geçenMs, hedefMs) → puan + hız bonusu
+     ctx.wrong(mesaj)    → hata: can düşer, 0 olursa oyun biter (KAYBETTİN ekranı). Kalan can döner;
+                           0 dönerse katman kendi akışını DURDURMALI (oyun zaten bitiyor)
+     ctx.ok()            → başarı sesi/titreşim/mesaj   ctx.flash(metin, tür)
+     ctx.layerDone()     → katmanı bitir, otomatik geçiş
+   ===================================================================== */
+
+/* ============ CONFIG ============ */
+const CONFIG = {
+  lives: 3,                 // katman başına can (her yeni katmanda yenilenir). Hepsi bitince KAYBETTİN ekranı
+  hintsPerLayer: 2,         // katman başına ipucu hakkı
+  hintPenalty: 50,          // ipucu skor cezası
+  transitionMs: 1500,       // katman geçiş süresi
+  flashMs: 850,             // büyük mesajların süresi
+  gameOverMs: 1700,         // son can gidince KAYBETTİN ekranına geçmeden önceki bekleme
+  retryLockMs: 1000,        // KAYBETTİN ekranında "tekrar oyna" butonunun açılma gecikmesi (yanlışlıkla basılmasın)
+  score: { speedFactor: 1 },// hız bonusu = taban × speedFactor × (kalan süre oranı)
+
+  footer: '[BİLGİSAYAR MÜHENDİSLİĞİ TOPLULUĞU]',   // final ve kaybettin ekranlarının alt yazısı
+
+  colors: { bg: '#0a0f0a', green: '#00ff66', red: '#ff3355', amber: '#ffb000', cyan: '#00e5ff' },
+
+  nicknames: ['ZERO_COOL', 'N30', 'GHOST_404', 'NULL_BYTE', 'R00T', 'CYBER_FOX', 'PHREAK', 'BIT_WRAITH'],
+
+  allowDebug: true,         // ?debug=1 menüsü. ETKİNLİK GÜNÜ false YAP (yoksa herkes finale atlayıp sahte kod alabilir)
+
+  // Rütbe eşikleri: 6 katmanın (her biri 2 bölüm) tamamı sonunda toplam skora göre.
+  // Bölüm sayısı düşürüldüğü için eşikler küçültüldü. Birkaç deneme oyunundan sonra yine ayarla
+  ranks: [
+    { min: 0,    name: 'SCRIPT KIDDIE' },
+    { min: 1600, name: 'HACKER' },
+    { min: 2500, name: 'ELITE' },
+    { min: 3400, name: 'ROOT' }
+  ],
+
+  // Her katmanda 2 bölüm var. Bölüm sayısı = ilgili dizinin uzunluğu (rounds / lengths / cardMs / waves)
+  layer1: {
+    roundPoints: 150,
+    rounds: [
+      { bits: 4, min: 3,  max: 15, time: 0, par: 12000 },
+      { bits: 6, min: 10, max: 63, time: 0, par: 18000 }
+    ]
+  },
+
+  layer2: {
+    wirePoints: 40,
+    wirePar: 4000,
+    hitRadius: 46,                               // bırakma toleransı (px)
+    rounds: [{ pairs: 3 }, { pairs: 5 }],
+    wires: [
+      { c: '#00ff66', s: 'circle' }, { c: '#00e5ff', s: 'tri' },    { c: '#ffb000', s: 'square' },
+      { c: '#ff3355', s: 'diamond' },{ c: '#ff55e0', s: 'star' },   { c: '#8c7bff', s: 'plus' }
+    ]
+  },
+
+  layer3: {
+    pads: 4, lengths: [3, 5],                // pad sayısı, round başına dizi uzunluğu
+    stepMs: 600, gapMs: 250,                 // adım aralığı, pad'ler arası karanlık süre
+    stepScale: [1, 0.85],                    // round başına oynatma hızı çarpanı (küçük = hızlı)
+    startDelay: 700,                         // dizi başlamadan önce bekleme
+    stepPoints: 20, stepPar: 2000, roundPoints: 100,
+    colors: ['#00ff66', '#00e5ff', '#ffb000', '#ff3355'],
+    shapes: ['circle', 'tri', 'square', 'diamond'],   // renk körlüğü için farklı semboller
+    freqs: [330, 415, 523, 659]              // her pad'in tonu (Hz)
+  },
+  layer4: {
+    cardsPerRound: 6, minCorrect: 5,         // round başına kart, geçmek için gereken doğru
+    cardMs: [5000, 4000],                    // kart başına süre (round başına)
+    cardPoints: 25, roundPoints: 100,
+    swipeThr: 70                             // kaydırma eşiği (px)
+  },
+
+  layer5: {
+    lanes: 3, waves: 2, waveMs: 20000,       // şerit sayısı, dalga sayısı, dalga süresi
+    // --- ZORLUK AYARLARI (hepsi buradan) ---
+    difficulty: 1,                           // genel çarpan: hız ×difficulty (0.8 = kolay, 1.2 = zor)
+    speeds: [200, 270],                      // dalga başına başlangıç hızı (px/sn)
+    ramp: 0.25,                              // dalga boyunca hız artışı (0.25 = sonda %25 daha hızlı)
+    spacing: [300, 270],                     // iki duvar arası dikey mesafe (px, küçük = zor)
+    maxShift: [1, 2],                        // boşluk sonraki duvarda en fazla kaç şerit kayar
+    hitGraceMs: 700,                         // çarpışma sonrası dokunulmazlık (ms)
+    // --- diğer ---
+    wallH: 30, pktSize: 38, hitInset: 6,     // duvar/paket boyutu, çarpışma toleransı (px)
+    slowMs: 3000, slowFactor: 0.5,           // ipucu = yavaş çekim (süre, hız çarpanı)
+    swipePx: 24,                             // kaydırma eşiği (px)
+    wallPoints: 10, wavePoints: 100, flawlessPoints: 50
+  },
+  layer6: {
+    slots: 4, tries: 8,                      // gizli kodun uzunluğu, tahmin hakkı
+    rounds: [{ symbols: 4 }, { symbols: 5 }],   // round başına kullanılan sembol sayısı
+    repeat: false,                           // gizli kodda aynı sembol tekrar edebilir mi
+    solvePoints: 200, triePoints: 30, solvePar: 90000,          // kırma puanı, artan hak başına puan, hız bonusu hedefi (ms)
+    symbols: [
+      { c: '#00ff66', s: 'circle' }, { c: '#00e5ff', s: 'tri' },    { c: '#ffb000', s: 'square' },
+      { c: '#ff3355', s: 'diamond' },{ c: '#ff55e0', s: 'star' },   { c: '#8c7bff', s: 'plus' }
+    ]
+  }
+};
+
+const MSG = {
+  ok:  ['NICE.', 'ACCESS OK', 'İÇERİDEYİZ', 'TEMİZ İŞ', 'GG.'],
+  bad: ['ACCESS DENIED', 'OOPS.', 'FIREWALL GÜLDÜ', 'ERİŞİM REDDİ']
+};
+
+/* ============ YARDIMCILAR ============ */
+const $ = (s, r) => (r || document).querySelector(s);
+const rand = (a, b) => a + Math.floor(Math.random() * (b - a + 1));
+const pick = a => a[Math.floor(Math.random() * a.length)];
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const shuffle = a => { a = a.slice(); for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); const t = a[i]; a[i] = a[j]; a[j] = t; } return a; };
+const pad2 = n => String(n).padStart(2, '0');
+const fmtTime = ms => { const s = Math.floor(ms / 1000); return pad2(Math.floor(s / 60)) + ':' + pad2(s % 60); };
+const popcount = n => { let c = 0; while (n) { c += n & 1; n >>= 1; } return c; };
+
+// Pointer Events ile anında tepki veren dokunma yardımcısı
+function tap(el, fn) {
+  el.addEventListener('pointerdown', e => {
+    if (e.button > 0) return;
+    e.preventDefault();
+    el.classList.add('press');
+    setTimeout(() => el.classList.remove('press'), 140);
+    fn(e);
+  });
+}
+
+// localStorage: her erişim try/catch içinde (sadece takma ad + en iyi skor)
+const Store = {
+  get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
+  set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+};
+
+const Haptic = {
+  v(p) { try { if (navigator.vibrate) navigator.vibrate(p); } catch (e) {} },
+  ok() { this.v(30); },
+  err() { this.v([80, 40, 80]); }
+};
+
+// 6 karakterlik basit ödül kodu (FNV-1a)
+function makeCode(nick, score, secs) {
+  const s = nick + '|' + score + '|' + secs;
+  let h = 0x811c9dc5;
+  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; }
+  const A = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  let out = '';
+  for (let i = 0; i < 6; i++) out += A[(h >>> (i * 5)) & 31];
+  return out;
+}
+
+/* ============ SES (Web Audio) ============ */
+const Sfx = {
+  ac: null, muted: false,
+  init() {
+    try {
+      if (!this.ac) {
+        const AC = window.AudioContext || window.webkitAudioContext;
+        if (!AC) return;
+        this.ac = new AC();
+      }
+      if (this.ac.state === 'suspended') { const p = this.ac.resume(); if (p && p.catch) p.catch(() => {}); }
+    } catch (e) {}
+  },
+  tone(f, d, type, vol, delay, slideTo) {
+    const ac = this.ac;
+    if (!ac || this.muted) return;
+    try {
+      d = d || 0.1; vol = vol || 0.07; delay = delay || 0;
+      const t = ac.currentTime + delay;
+      const o = ac.createOscillator(), g = ac.createGain();
+      o.type = type || 'square';
+      o.frequency.setValueAtTime(f, t);
+      if (slideTo) o.frequency.exponentialRampToValueAtTime(Math.max(30, slideTo), t + d);
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(vol, t + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + d);
+      o.connect(g); g.connect(ac.destination);
+      o.start(t); o.stop(t + d + 0.03);
+    } catch (e) {}
+  },
+  click() { this.tone(520, 0.04, 'square', 0.04); },
+  ok()    { this.tone(660, 0.07, 'square', 0.07); this.tone(880, 0.07, 'square', 0.07, 0.07); this.tone(1320, 0.14, 'square', 0.07, 0.14); },
+  err()   { this.tone(240, 0.3, 'sawtooth', 0.09, 0, 90); this.tone(130, 0.3, 'square', 0.07, 0.05); },
+  unlock(){ this.tone(300, 0.6, 'square', 0.06, 0, 1400); },
+  win()   { [523, 659, 784, 1047, 1319].forEach((f, i) => this.tone(f, 0.18, 'square', 0.07, i * 0.1)); },
+  lose()  { [440, 370, 311, 220].forEach((f, i) => this.tone(f, 0.26, 'sawtooth', 0.08, i * 0.18, f * 0.8)); }
+};
+
+/* ============ ÖĞRETİCİ PARMAK ============ */
+// steps: {el, fx, fy, k}  → o noktaya git ve dokun
+//        {el, to:{el}, drag:true, color} → sürükle
+const Tutorial = {
+  el: null, timers: [], hooks: null, res: null,
+  run(root, steps, hooks) {
+    this.cancel();
+    return new Promise(res => {
+      this.res = res; this.hooks = hooks || {};
+      const ov = document.createElement('div'); ov.className = 'tut';
+      const f = document.createElement('div'); f.className = 'finger'; f.innerHTML = '<span>👆</span>';
+      ov.appendChild(f); root.appendChild(ov); this.el = ov;
+      ov.addEventListener('pointerdown', e => { e.preventDefault(); this.cancel(); });   // dokununca atla
+      const self = this;
+      const T = (fn, ms) => { self.timers.push(setTimeout(fn, ms)); };
+      const rr = root.getBoundingClientRect();
+      const P = s => {
+        const r = s.el.getBoundingClientRect();
+        return { x: r.left - rr.left + r.width * (s.fx == null ? 0.5 : s.fx), y: r.top - rr.top + r.height * (s.fy == null ? 0.5 : s.fy) };
+      };
+      const place = p => { f.style.transform = 'translate(' + (p.x - 23) + 'px,' + (p.y - 6) + 'px)'; };
+      const ripple = p => {
+        const r = document.createElement('div'); r.className = 'rip';
+        r.style.left = p.x + 'px'; r.style.top = p.y + 'px'; ov.appendChild(r);
+        T(() => r.remove(), 600);
+      };
+      const first = P(steps[0]);
+      f.style.transition = 'none'; place({ x: first.x, y: first.y + 70 }); void f.offsetWidth; f.style.transition = '';
+      f.style.opacity = '1';
+
+      const next = i => {
+        if (i >= steps.length) { T(() => self.cancel(), 350); return; }
+        const s = steps[i], p = P(s);
+        // adım ayarları: fast = hızlı dokunuş, wait = dokunuştan sonra bekleme, dur = sürükleme süresi (ms)
+        const A = s.fast ? 380 : 650, H = s.wait || (s.fast ? 160 : 300), D = s.dur || 900;
+        f.style.transition = 'transform ' + ((A - 50) / 1000) + 's cubic-bezier(.4,0,.2,1),opacity .25s';
+        place(p);
+        T(() => {
+          f.classList.add('press'); ripple(p); Sfx.click();
+          if (self.hooks.press) self.hooks.press(s, i);
+          if (s.drag) {
+            const q = P(s.to), dx = q.x - p.x, dy = q.y - p.y, len = Math.hypot(dx, dy), ang = Math.atan2(dy, dx);
+            if (!s.noWire) {                       // noWire: kablo çizme (ör. kart kaydırma öğreticisi)
+              const w = document.createElement('div'); w.className = 'dwire';
+              w.style.cssText = 'left:' + p.x + 'px;top:' + p.y + 'px;width:' + len + 'px;background:' + s.color + ';box-shadow:0 0 8px ' + s.color + ';transform:rotate(' + ang + 'rad) scaleX(0)';
+              ov.insertBefore(w, f); void w.offsetWidth;
+              w.style.transition = 'transform ' + (D / 1000) + 's linear'; w.style.transform = 'rotate(' + ang + 'rad) scaleX(1)';
+            }
+            if (self.hooks.dragStart) self.hooks.dragStart(s, i);   // parmakla senkron hareket için
+            f.style.transition = 'transform ' + (D / 1000) + 's linear'; place(q);
+            T(() => {
+              f.classList.remove('press');
+              ripple(q); Sfx.ok();
+              if (self.hooks.drop) self.hooks.drop(s, i);
+              T(() => next(i + 1), 500);
+            }, D + 50);
+          } else {
+            T(() => { f.classList.remove('press'); next(i + 1); }, H);
+          }
+        }, A);
+      };
+      next(0);
+    });
+  },
+  cancel() {
+    if (!this.el) return;
+    this.timers.forEach(clearTimeout); this.timers = [];
+    this.el.remove(); this.el = null;
+    const h = this.hooks, r = this.res; this.hooks = null; this.res = null;
+    if (h && h.cleanup) { try { h.cleanup(); } catch (e) {} }
+    if (r) r();
+  }
+};
+
+/* ============ MATRIX RAIN (final ekranı) ============ */
+const Rain = {
+  raf: 0, cv: null, cx: null, drops: [], last: 0, fs: 16, w: 0, h: 0,
+  start(cv) {
+    this.cv = cv; this.cx = cv.getContext('2d');
+    this.fit();
+    this.cx.fillStyle = CONFIG.colors.bg; this.cx.fillRect(0, 0, this.w, this.h);
+    this.last = 0;
+    const loop = t => {
+      this.raf = requestAnimationFrame(loop);
+      if (t - this.last < 55) return;       // ~18 fps: ucuz telefonlarda yeterli
+      this.last = t; this.draw();
+    };
+    this.raf = requestAnimationFrame(loop);
+  },
+  fit() {
+    if (!this.cv) return;
+    const r = this.cv.getBoundingClientRect();
+    this.w = this.cv.width = Math.max(1, Math.floor(r.width));
+    this.h = this.cv.height = Math.max(1, Math.floor(r.height));
+    const cols = Math.floor(this.w / this.fs);
+    this.drops = []; for (let i = 0; i < cols; i++) this.drops.push(-rand(0, 25));
+  },
+  draw() {
+    const cx = this.cx, fs = this.fs, CH = '01ABCDEF<>/\\{}$#%=+';
+    cx.fillStyle = 'rgba(10,15,10,0.14)'; cx.fillRect(0, 0, this.w, this.h);
+    cx.fillStyle = CONFIG.colors.green; cx.font = fs + 'px monospace';
+    for (let i = 0; i < this.drops.length; i++) {
+      const y = this.drops[i] * fs;
+      if (y > 0) cx.fillText(CH[Math.floor(Math.random() * CH.length)], i * fs, y);
+      if (y > this.h && Math.random() > 0.96) this.drops[i] = 0;
+      this.drops[i]++;
+    }
+  },
+  stop() { cancelAnimationFrame(this.raf); this.raf = 0; this.cv = null; }
+};
+
+/* ============ HUD ============ */
+const HEART = '<svg viewBox="0 0 24 24"><path d="M12 21s-7.5-4.8-9.6-9.4C.9 8.2 2.9 4.5 6.4 4.5c2.1 0 3.8 1.2 5.6 3.2 1.8-2 3.5-3.2 5.6-3.2 3.5 0 5.5 3.7 4 7.1C19.5 16.2 12 21 12 21z"/></svg>';
+const ICON_ON  = '<svg viewBox="0 0 24 24"><path d="M3 9v6h4l5 4V5L7 9H3z" fill="currentColor"/><path d="M15.5 8.5a5 5 0 0 1 0 7M18 6a8.5 8.5 0 0 1 0 12" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/></svg>';
+const ICON_OFF = '<svg viewBox="0 0 24 24"><path d="M3 9v6h4l5 4V5L7 9H3z" fill="currentColor"/><path d="M16 9l5 6M21 9l-5 6" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/></svg>';
+
+const Hud = {
+  init() {
+    this.el = $('#hud'); this.dots = $('#hDots'); this.score = $('#hScore'); this.scoreW = $('#hScoreW'); this.lives = $('#hLives'); this.mute = $('#hMute');
+    this.dots.innerHTML = Layers.map(() => '<i class="dot"></i>').join('');
+    let h = ''; for (let i = 0; i < CONFIG.lives; i++) h += '<span class="heart">' + HEART + '</span>';
+    this.lives.innerHTML = h;
+    this.muteIcon();
+    tap(this.mute, () => { Sfx.init(); Sfx.muted = !Sfx.muted; this.muteIcon(); Sfx.click(); });
+  },
+  muteIcon() { this.mute.innerHTML = Sfx.muted ? ICON_OFF : ICON_ON; },
+  mode(m) { this.el.classList.toggle('idle', m === 'idle'); },
+  refresh() { this.setDots(); this.setScore(false); this.setLives(false); },
+  setDots() {
+    const d = this.dots.children;
+    for (let i = 0; i < d.length; i++) d[i].className = 'dot' + (i < Game.layerIndex ? ' full' : i === Game.layerIndex ? ' cur' : '');
+  },
+  setScore(pop) {
+    this.score.textContent = String(Game.score).padStart(5, '0');
+    if (pop) { this.score.classList.remove('pop'); void this.score.offsetWidth; this.score.classList.add('pop'); }
+  },
+  setLives(hit) {
+    const h = this.lives.children;
+    for (let i = 0; i < h.length; i++) h[i].classList.toggle('lost', i >= Game.lives);
+    if (hit) { this.lives.classList.remove('hit'); void this.lives.offsetWidth; this.lives.classList.add('hit'); }
+  },
+  float(text, color) {
+    const s = document.createElement('span'); s.className = 'fl'; s.textContent = text; s.style.color = color;
+    this.scoreW.appendChild(s); setTimeout(() => s.remove(), 1000);
+  }
+};
+
+/* ============ KATMAN 1: BINARY ANAHTARLAR ============ */
+const L1 = {
+  id: 1, name: 'BINARY ANAHTARLAR',
+  ctx: null, round: 0, rc: null, vals: [], state: [], cells: [], target: 0, t0: 0, tEnd: 0, raf: 0, busy: true,
+
+  init(ctx) {
+    this.ctx = ctx; this.round = 0; this.busy = true; this.target = 0;
+    ctx.root.innerHTML =
+      '<div class="l1">' +
+        '<div class="l1-top">' +
+          '<div class="box target"><div class="lbl">HEDEF</div><div class="num" id="l1t">0</div><div class="bin"> </div></div>' +
+          '<div class="box sum" id="l1sb"><div class="lbl">TOPLAM</div><div class="num" id="l1s">0</div><div class="bin" id="l1b"> </div></div>' +
+        '</div>' +
+        '<div class="tbar" id="l1bar"><i></i></div>' +
+        '<div class="l1-sw" id="l1sw"></div>' +
+        '<button class="btn" id="l1go">ÇALIŞTIR ►</button>' +
+      '</div>';
+    const q = s => $(s, ctx.root);
+    this.elT = q('#l1t'); this.elS = q('#l1s'); this.boxS = q('#l1sb'); this.elB = q('#l1b');
+    this.elSw = q('#l1sw'); this.elGo = q('#l1go'); this.bar = q('#l1bar'); this.barI = q('#l1bar i');
+    tap(this.elGo, () => this.submit());
+    ctx.setHint(() => this.hint());
+  },
+
+  start() {
+    const ctx = this.ctx;
+    this.setupRound(0);
+    if (ctx.replay) { this.begin(); return; }
+    // Öğretici: parmak 4 ve 1 anahtarlarına dokunur, toplam canlı değişir
+    const k4 = this.vals.indexOf(4), k1 = this.vals.indexOf(1);
+    Tutorial.run(ctx.root, [{ el: this.cells[k4], k: k4 }, { el: this.cells[k1], k: k1 }], {
+      press: s => this.toggle(s.k, false),
+      cleanup: () => { this.state.fill(0); this.cells.forEach(c => c.classList.remove('on')); this.refresh(); }
+    }).then(() => { if (!ctx.dead) this.begin(); });
+  },
+
+  setupRound(r) {
+    const ctx = this.ctx, rcs = CONFIG.layer1.rounds, rc = rcs[r];
+    this.round = r; this.rc = rc;
+    ctx.setRound(r, rcs.length);
+    let t, guard = 0;
+    do { t = rand(rc.min, rc.max); guard++; } while ((popcount(t) < 2 || t === this.target) && guard < 100);
+    this.target = t;
+    this.vals = []; for (let k = 0; k < rc.bits; k++) this.vals.push(1 << (rc.bits - 1 - k));
+    this.state = this.vals.map(() => 0);
+    const cols = rc.bits === 6 ? 3 : 4;
+    this.elSw.style.gridTemplateColumns = 'repeat(' + cols + ',1fr)';
+    this.elSw.innerHTML = ''; this.cells = [];
+    this.vals.forEach((v, k) => {
+      const b = document.createElement('button');
+      b.className = 'swc';
+      b.innerHTML = '<i class="track"><i class="knob"></i></i><span class="val">' + v + '</span>';
+      this.elSw.appendChild(b); this.cells.push(b);
+      tap(b, () => this.toggle(k, true));
+    });
+    this.elT.textContent = t;
+    this.bar.classList.toggle('on', !!rc.time); this.bar.classList.remove('low'); this.barI.style.transform = 'scaleX(1)';
+    this.busy = true;
+    this.refresh();
+  },
+
+  begin() {
+    this.busy = false; this.t0 = performance.now();
+    if (this.rc.time) {
+      this.tEnd = this.t0 + this.rc.time;
+      let low = false;
+      const step = () => {
+        if (this.busy || this.ctx.dead) return;
+        const left = this.tEnd - performance.now(), ratio = clamp(left / this.rc.time, 0, 1);
+        this.barI.style.transform = 'scaleX(' + ratio + ')';
+        const isLow = ratio < 0.3;
+        if (isLow !== low) { low = isLow; this.bar.classList.toggle('low', low); }
+        if (left <= 0) { this.timeout(); return; }
+        this.raf = requestAnimationFrame(step);
+      };
+      this.raf = requestAnimationFrame(step);
+    }
+  },
+
+  toggle(k, user) {
+    if (user && (this.busy || this.ctx.locked)) return;
+    this.state[k] ^= 1;
+    this.cells[k].classList.toggle('on', !!this.state[k]);
+    if (user) Sfx.tone(this.state[k] ? 720 : 440, 0.05, 'square', 0.05);
+    this.refresh();
+  },
+
+  sum() { let s = 0; for (let k = 0; k < this.state.length; k++) s += this.state[k] * this.vals[k]; return s; },
+
+  refresh() {
+    const s = this.sum();
+    this.elS.textContent = s;
+    this.boxS.classList.toggle('over', s > this.target);
+    this.boxS.classList.toggle('hit', s === this.target);
+    this.elB.textContent = this.state.join('').replace(/(.{4})(?=.)/g, '$1 ');
+    this.elGo.classList.toggle('ready', s === this.target);
+  },
+
+  submit() {
+    const ctx = this.ctx;
+    if (this.busy || ctx.locked) return;
+    if (this.sum() === this.target) {
+      this.busy = true; cancelAnimationFrame(this.raf);
+      ctx.award(CONFIG.layer1.roundPoints, performance.now() - this.t0, this.rc.par);
+      ctx.ok();
+      const last = this.round >= CONFIG.layer1.rounds.length - 1;
+      ctx.after(950, () => { if (last) ctx.layerDone(); else { this.setupRound(this.round + 1); this.begin(); } });
+    } else {
+      this.boxS.classList.remove('shake'); void this.boxS.offsetWidth; this.boxS.classList.add('shake');
+      ctx.wrong(pick(MSG.bad));
+    }
+  },
+
+  timeout() {
+    const ctx = this.ctx;
+    this.busy = true; cancelAnimationFrame(this.raf);
+    const lives = ctx.wrong('ZAMAN AŞIMI');
+    if (lives > 0) ctx.after(950, () => { this.setupRound(this.round); this.begin(); });   // aynı round, yeni hedef
+  },
+
+  hint() {
+    if (this.busy) return false;
+    const k = this.vals.findIndex((v, i) => ((this.target & v) ? 1 : 0) !== this.state[i]);   // en soldaki hatalı bit
+    if (k < 0) { this.elGo.classList.add('hint'); this.ctx.after(1600, () => this.elGo.classList.remove('hint')); return false; }
+    const c = this.cells[k];
+    c.classList.add('hint'); this.ctx.after(1700, () => c.classList.remove('hint'));
+    return true;
+  },
+
+  destroy() { cancelAnimationFrame(this.raf); this.busy = true; }
+};
+
+/* ============ KATMAN 2: KABLO BAĞLA ============ */
+const NS = 'http://www.w3.org/2000/svg';
+const SYM = {
+  circle:  '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="7"/></svg>',
+  tri:     '<svg viewBox="0 0 24 24"><path d="M12 4l9 16H3z"/></svg>',
+  square:  '<svg viewBox="0 0 24 24"><rect x="5" y="5" width="14" height="14"/></svg>',
+  diamond: '<svg viewBox="0 0 24 24"><path d="M12 2l10 10-10 10L2 12z"/></svg>',
+  star:    '<svg viewBox="0 0 24 24"><path d="M12 2.5l2.9 6.2 6.8.8-5 4.7 1.3 6.7L12 17.5 6 20.9l1.3-6.7-5-4.7 6.8-.8z"/></svg>',
+  plus:    '<svg viewBox="0 0 24 24"><path d="M9 3h6v6h6v6h-6v6H9v-6H3V9h6z"/></svg>'
+};
+
+const L2 = {
+  id: 2, name: 'KABLO BAĞLA',
+  ctx: null, round: 0, n: 0, links: [], drag: null, busy: true, tLast: 0, arect: null,
+
+  init(ctx) {
+    this.ctx = ctx; this.round = 0; this.busy = true; this.links = []; this.drag = null;
+    ctx.root.innerHTML = '<div class="l2" id="l2"><svg class="wires" id="l2w"></svg><div class="col L" id="l2L"></div><div class="col R" id="l2R"></div></div>';
+    this.arena = $('#l2', ctx.root); this.svg = $('#l2w', ctx.root); this.colL = $('#l2L', ctx.root); this.colR = $('#l2R', ctx.root);
+    this.arena.addEventListener('pointerdown', e => this.down(e));
+    this.arena.addEventListener('pointermove', e => this.move(e));
+    this.arena.addEventListener('pointerup', e => this.up(e));
+    this.arena.addEventListener('pointercancel', e => this.cancel(e));
+    ctx.setHint(() => this.hint());
+  },
+
+  start() {
+    const ctx = this.ctx, W = CONFIG.layer2.wires;
+    this.build(0);
+    if (ctx.replay) { this.begin(); return; }
+    // Öğretici: parmak soldaki ilk düğümü eşinin yanına sürükler
+    const a = this.colL.children[0], k = a.dataset.k;
+    const b = Array.prototype.find.call(this.colR.children, x => x.dataset.k === k);
+    Tutorial.run(ctx.root, [{ el: a, drag: true, to: { el: b }, color: W[k].c }], {
+      drop: () => { a.classList.add('done'); b.classList.add('done'); },
+      cleanup: () => { a.classList.remove('done'); b.classList.remove('done'); }
+    }).then(() => { if (!ctx.dead) this.begin(); });
+  },
+
+  build(r) {
+    const ctx = this.ctx, rcs = CONFIG.layer2.rounds, W = CONFIG.layer2.wires;
+    this.round = r; this.n = rcs[r].pairs; this.links = []; this.drag = null;
+    ctx.setRound(r, rcs.length);
+    this.svg.innerHTML = ''; this.colL.innerHTML = ''; this.colR.innerHTML = '';
+    const ids = shuffle(W.map((_, i) => i)).slice(0, this.n);
+    const left = shuffle(ids);
+    let right, guard = 0;
+    do { right = shuffle(ids); guard++; } while (this.n > 1 && guard < 200 && right.some((v, i) => v === left[i]));   // kablolar kesişsin
+    const mk = (k, side) => {
+      const b = document.createElement('button');
+      b.className = 'node'; b.dataset.k = k; b.dataset.side = side;
+      b.style.setProperty('--nc', W[k].c);
+      b.innerHTML = SYM[W[k].s];
+      return b;
+    };
+    left.forEach(k => this.colL.appendChild(mk(k, 'L')));
+    right.forEach(k => this.colR.appendChild(mk(k, 'R')));
+    this.busy = true;
+  },
+
+  begin() { this.busy = false; this.tLast = performance.now(); },
+
+  center(n) {
+    const r = n.getBoundingClientRect(), a = this.arena.getBoundingClientRect();
+    return { x: r.left - a.left + r.width / 2, y: r.top - a.top + r.height / 2 };
+  },
+
+  mkWire(color) {
+    const g = document.createElementNS(NS, 'g'), a = document.createElementNS(NS, 'path'), b = document.createElementNS(NS, 'path');
+    [[a, 12, '.25'], [b, 5, '1']].forEach(x => {
+      x[0].setAttribute('fill', 'none'); x[0].setAttribute('stroke', color);
+      x[0].setAttribute('stroke-width', x[1]); x[0].setAttribute('stroke-opacity', x[2]); x[0].setAttribute('stroke-linecap', 'round');
+      g.appendChild(x[0]);
+    });
+    this.svg.appendChild(g);
+    return { g: g, a: a, b: b };
+  },
+
+  setWire(w, p, q) {
+    const dx = (q.x - p.x) * 0.5;
+    const d = 'M' + p.x + ' ' + p.y + 'C' + (p.x + dx) + ' ' + p.y + ' ' + (q.x - dx) + ' ' + q.y + ' ' + q.x + ' ' + q.y;
+    w.a.setAttribute('d', d); w.b.setAttribute('d', d);
+  },
+
+  down(e) {
+    if (this.busy || this.ctx.locked || this.drag) return;
+    const n = e.target.closest && e.target.closest('.node');
+    if (!n || n.classList.contains('done')) return;
+    e.preventDefault();
+    this.arect = this.arena.getBoundingClientRect();
+    const w = this.mkWire(CONFIG.layer2.wires[n.dataset.k].c), p = this.center(n);
+    this.setWire(w, p, p);
+    this.drag = { n: n, id: e.pointerId, w: w, p: p };
+    n.classList.add('active');
+    try { this.arena.setPointerCapture(e.pointerId); } catch (err) {}
+    Sfx.tone(520, 0.04, 'square', 0.04);
+  },
+
+  move(e) {
+    const d = this.drag;
+    if (!d || e.pointerId !== d.id) return;
+    this.setWire(d.w, d.p, { x: e.clientX - this.arect.left, y: e.clientY - this.arect.top });
+  },
+
+  up(e) {
+    const d = this.drag;
+    if (!d || e.pointerId !== d.id) return;
+    this.drag = null; d.n.classList.remove('active');
+    const q = { x: e.clientX - this.arect.left, y: e.clientY - this.arect.top };
+    const cand = this.nearest(d.n, q);
+    if (!cand) { d.w.g.remove(); return; }       // boşa bırakıldı: ceza yok
+    if (cand.dataset.k === d.n.dataset.k) this.connect(d, cand); else this.fail(d, cand);
+  },
+
+  cancel(e) {
+    const d = this.drag;
+    if (!d || e.pointerId !== d.id) return;
+    this.drag = null; d.n.classList.remove('active'); d.w.g.remove();
+  },
+
+  nearest(from, q) {
+    const list = from.dataset.side === 'L' ? this.colR.children : this.colL.children;
+    let best = null, bd = CONFIG.layer2.hitRadius;
+    for (let i = 0; i < list.length; i++) {
+      const n = list[i];
+      if (n.classList.contains('done')) continue;
+      const c = this.center(n), dist = Math.hypot(c.x - q.x, c.y - q.y);
+      if (dist < bd) { bd = dist; best = n; }
+    }
+    return best;
+  },
+
+  connect(d, c) {
+    const ctx = this.ctx, cfg = CONFIG.layer2;
+    this.setWire(d.w, d.p, this.center(c));
+    d.n.classList.add('done'); c.classList.add('done');
+    this.links.push({ w: d.w, a: d.n, b: c });
+    const now = performance.now();
+    ctx.award(cfg.wirePoints, now - this.tLast, cfg.wirePar); this.tLast = now;
+    Haptic.v(20);
+    if (this.links.length >= this.n) this.roundDone();
+    else Sfx.tone(600 + this.links.length * 120, 0.09, 'square', 0.06);
+  },
+
+  fail(d, c) {
+    const ctx = this.ctx, pc = this.center(c);
+    this.spark(pc.x, pc.y);
+    d.w.a.setAttribute('stroke', CONFIG.colors.red); d.w.b.setAttribute('stroke', CONFIG.colors.red);
+    this.setWire(d.w, d.p, pc);
+    d.n.classList.add('bad'); c.classList.add('bad');
+    ctx.after(450, () => { d.w.g.remove(); d.n.classList.remove('bad'); c.classList.remove('bad'); });
+    ctx.wrong(pick(['KISA DEVRE', 'KIVILCIM!', 'YANLIŞ PORT']));
+  },
+
+  spark(x, y) {
+    const s = document.createElement('div'); s.className = 'spark';
+    s.style.left = x + 'px'; s.style.top = y + 'px';
+    let h = '';
+    for (let i = 0; i < 9; i++) { const a = Math.random() * 6.283, r = 24 + Math.random() * 28; h += '<i style="--dx:' + (Math.cos(a) * r) + 'px;--dy:' + (Math.sin(a) * r) + 'px"></i>'; }
+    s.innerHTML = h; this.arena.appendChild(s);
+    this.ctx.after(550, () => s.remove());
+  },
+
+  roundDone() {
+    const ctx = this.ctx;
+    this.busy = true;
+    ctx.ok();
+    const last = this.round >= CONFIG.layer2.rounds.length - 1;
+    ctx.after(1000, () => { if (last) ctx.layerDone(); else { this.build(this.round + 1); this.begin(); } });
+  },
+
+  hint() {
+    if (this.busy) return false;
+    const a = Array.prototype.find.call(this.colL.children, n => !n.classList.contains('done'));
+    if (!a) return false;
+    const b = Array.prototype.find.call(this.colR.children, n => n.dataset.k === a.dataset.k);
+    const both = [a, b];
+    both.forEach(n => n.classList.add('hint'));
+    this.ctx.after(1900, () => both.forEach(n => n.classList.remove('hint')));
+    return true;
+  },
+
+  onResize() { this.links.forEach(l => this.setWire(l.w, this.center(l.a), this.center(l.b))); },
+  destroy() { this.busy = true; this.drag = null; }
+};
+
+/* ============ KATMAN 3: SİNYAL HAFIZASI (Simon) ============ */
+const L3 = {
+  id: 3, name: 'SİNYAL HAFIZASI',
+  ctx: null, round: 0, seq: [], pos: 0, busy: true, pads: [], tLast: 0,
+
+  init(ctx) {
+    const cfg = CONFIG.layer3;
+    this.ctx = ctx; this.round = 0; this.pos = 0; this.busy = true; this.seq = []; this.pads = [];
+    ctx.root.innerHTML =
+      '<div class="l3"><div class="l3-top"><span class="l3-st" id="l3st"></span><span class="l3-dots" id="l3d"></span></div>' +
+      '<div class="l3-pads" id="l3p"></div></div>';
+    this.elSt = $('#l3st', ctx.root); this.elD = $('#l3d', ctx.root);
+    const wrap = $('#l3p', ctx.root);
+    for (let k = 0; k < cfg.pads; k++) {
+      const b = document.createElement('button');
+      b.className = 'pad'; b.style.setProperty('--pc', cfg.colors[k]); b.innerHTML = SYM[cfg.shapes[k]];
+      wrap.appendChild(b); this.pads.push(b);
+      tap(b, () => this.press(k));
+    }
+    ctx.setHint(() => this.hint());
+  },
+
+  start() {
+    const ctx = this.ctx, cfg = CONFIG.layer3, n = cfg.pads;
+    this.newRound(0);
+    if (ctx.replay) { this.play(cfg.startDelay); return; }
+    // Öğretici: iki pad sırayla yanar, parmak aynı sırayla dokunur
+    const a = rand(0, n - 1); let b;
+    do { b = rand(0, n - 1); } while (b === a);
+    this.status('watch');
+    ctx.after(500, () => this.light(a, 350));
+    ctx.after(1050, () => this.light(b, 350));
+    ctx.after(1700, () => {
+      this.status('go');
+      Tutorial.run(ctx.root, [{ el: this.pads[a], k: a, fast: true }, { el: this.pads[b], k: b, fast: true }], {
+        press: s => this.light(s.k, 260)
+      }).then(() => { if (!ctx.dead) this.play(cfg.startDelay - 200); });
+    });
+  },
+
+  newRound(r) {
+    const cfg = CONFIG.layer3, len = cfg.lengths[r], s = [];
+    this.round = r; this.pos = 0; this.busy = true;
+    this.ctx.setRound(r, cfg.lengths.length);
+    for (let i = 0; i < len; i++) {
+      let p;
+      do { p = rand(0, cfg.pads - 1); } while (i >= 2 && p === s[i - 1] && p === s[i - 2]);   // 3 kez üst üste aynı pad gelmesin
+      s.push(p);
+    }
+    this.seq = s; this.drawDots();
+  },
+
+  // Diziyi oynat, bitince girdiyi aç
+  play(delay) {
+    const ctx = this.ctx, cfg = CONFIG.layer3;
+    const st = Math.max(300, Math.round(cfg.stepMs * (cfg.stepScale[this.round] || 1)));
+    const on = Math.max(160, st - cfg.gapMs);
+    this.busy = true; this.pos = 0; this.drawDots(); this.status('watch');
+    this.seq.forEach((k, i) => ctx.after(delay + i * st, () => this.light(k, on)));
+    ctx.after(delay + this.seq.length * st + 100, () => {
+      this.busy = false; this.pos = 0; this.tLast = performance.now(); this.status('go');
+    });
+  },
+
+  light(k, ms) {
+    const p = this.pads[k];
+    p.classList.add('lit');
+    Sfx.tone(CONFIG.layer3.freqs[k], ms / 1000, 'square', 0.08);
+    this.ctx.after(ms, () => p.classList.remove('lit'));
+  },
+
+  press(k) {
+    const ctx = this.ctx, cfg = CONFIG.layer3;
+    if (this.busy || ctx.locked) return;
+    if (k !== this.seq[this.pos]) { this.miss(k); return; }
+    this.light(k, 220);
+    this.pos++; this.drawDots();
+    const now = performance.now();
+    ctx.award(cfg.stepPoints, now - this.tLast, cfg.stepPar); this.tLast = now;
+    if (this.pos >= this.seq.length) this.done();
+  },
+
+  miss(k) {
+    const ctx = this.ctx, p = this.pads[k];
+    this.busy = true; p.classList.add('bad');
+    ctx.after(420, () => p.classList.remove('bad'));
+    const lives = ctx.wrong(pick(MSG.bad));
+    if (lives > 0) ctx.after(1100, () => this.play(500));          // aynı diziyi baştan göster
+  },
+
+  done() {
+    const ctx = this.ctx, cfg = CONFIG.layer3;
+    this.busy = true;
+    ctx.award(cfg.roundPoints, 0, 0); ctx.ok();
+    const last = this.round >= cfg.lengths.length - 1;
+    ctx.after(1000, () => { if (last) ctx.layerDone(); else { this.newRound(this.round + 1); this.play(cfg.startDelay); } });
+  },
+
+  hint() {
+    if (this.busy) return false;                                    // dizi oynarken hak harcanmaz
+    const p = this.pads[this.seq[this.pos]];
+    p.classList.add('hint'); this.ctx.after(1700, () => p.classList.remove('hint'));
+    return true;
+  },
+
+  status(m) { this.elSt.textContent = m === 'go' ? 'TEKRARLA' : 'İZLE'; this.elSt.classList.toggle('go', m === 'go'); },
+  drawDots() {
+    let h = '';
+    for (let i = 0; i < this.seq.length; i++) h += '<i class="' + (i < this.pos ? 'full' : '') + '"></i>';
+    this.elD.innerHTML = h;
+  },
+  destroy() { this.busy = true; }
+};
+
+/* ============ KATMAN 4: PHISHING AVCISI (swipe) ============ */
+// d: zorluk (0 kolay, 1 orta, 2 zor) · f: true = SAHTE · k: kartın üst etiketi
+// Not: round sayısı 2 olduğu için şu an yalnızca d:0 (1. round) ve d:1 (2. round) kartları kullanılıyor
+const PHISH = [
+  // --- kolay ---
+  { t: 'paypa1-login.com', k: 'URL', f: true, d: 0 },
+  { t: 'g00gle-giris.net', k: 'URL', f: true, d: 0 },
+  { t: 'e-devlet-giris.net', k: 'URL', f: true, d: 0 },
+  { t: 'http://bedava-iphone.win/kazan', k: 'URL', f: true, d: 0 },
+  { t: 'kargo-takip@yurtici-kargo.top', k: 'GÖNDEREN', f: true, d: 0 },
+  { t: 'hediye@trendyol-kampanya.xyz', k: 'GÖNDEREN', f: true, d: 0 },
+  { t: 'github.com', k: 'URL', f: false, d: 0 },
+  { t: 'google.com', k: 'URL', f: false, d: 0 },
+  { t: 'wikipedia.org', k: 'URL', f: false, d: 0 },
+  { t: 'turkiye.gov.tr', k: 'URL', f: false, d: 0 },
+  { t: 'hepsiburada.com', k: 'URL', f: false, d: 0 },
+  { t: 'noreply@github.com', k: 'GÖNDEREN', f: false, d: 0 },
+  // --- orta ---
+  { t: 'garanti-bbva-guvenlik.com', k: 'URL', f: true, d: 1 },
+  { t: 'secure.isbank.com.tr.dogrula.net', k: 'URL', f: true, d: 1 },
+  { t: 'instagrarn.com', k: 'URL', f: true, d: 1 },
+  { t: 'https://accounts.google.com.hesap-dogrula.xyz', k: 'URL', f: true, d: 1 },
+  { t: 'guvenlik@akbank-musteri.info', k: 'GÖNDEREN', f: true, d: 1 },
+  { t: 'uyelik@netflix-fatura.com', k: 'GÖNDEREN', f: true, d: 1 },
+  { t: 'accounts.google.com', k: 'URL', f: false, d: 1 },
+  { t: 'support.microsoft.com', k: 'URL', f: false, d: 1 },
+  { t: 'giris.turkiye.gov.tr', k: 'URL', f: false, d: 1 },
+  { t: 'www.isbank.com.tr', k: 'URL', f: false, d: 1 },
+  { t: 'no-reply@spotify.com', k: 'GÖNDEREN', f: false, d: 1 },
+  { t: 'mehmetakif.edu.tr', k: 'URL', f: false, d: 1 },
+  // --- zor ---
+  { t: 'turkiye.gov.tr.giris-yap.com', k: 'URL', f: true, d: 2 },
+  { t: 'github.com-security.net', k: 'URL', f: true, d: 2 },
+  { t: 'rnicrosoft.com', k: 'URL', f: true, d: 2 },
+  { t: 'http://185.23.44.9/giris', k: 'URL', f: true, d: 2 },
+  { t: 'destek@apple.id-dogrula.com', k: 'GÖNDEREN', f: true, d: 2 },
+  { t: 'https://www.ziraatbank.com.tr@giris-yap.net', k: 'URL', f: true, d: 2 },
+  { t: 'www.turkcell.com.tr', k: 'URL', f: false, d: 2 },
+  { t: 'login.microsoftonline.com', k: 'URL', f: false, d: 2 },
+  { t: 'education.github.com', k: 'URL', f: false, d: 2 },
+  { t: 'https://www.garantibbva.com.tr', k: 'URL', f: false, d: 2 },
+  { t: 'help.steampowered.com', k: 'URL', f: false, d: 2 },
+  { t: 'security@mail.instagram.com', k: 'GÖNDEREN', f: false, d: 2 }
+];
+
+const L4 = {
+  id: 4, name: 'PHISHING AVCISI',
+  ctx: null, round: 0, cards: [], idx: 0, miss: 0, res: [], busy: true, drag: null, dx: 0, raf: 0, t0: 0, tEnd: 0, used: {},
+
+  init(ctx) {
+    this.ctx = ctx; this.round = 0; this.busy = true; this.drag = null; this.used = {}; this.cards = []; this.res = [];
+    ctx.root.innerHTML =
+      '<div class="l4">' +
+        '<div class="l4-prog" id="l4p"></div>' +
+        '<div class="tbar on" id="l4bar"><i></i></div>' +
+        '<div class="l4-area" id="l4a">' +
+          '<div class="l4-edge L">SAHTE</div><div class="l4-edge R">GÜVENLİ</div>' +
+          '<div class="l4-card" id="l4c"><div class="l4-kind" id="l4k"></div><div class="l4-txt" id="l4t"></div></div>' +
+        '</div>' +
+        '<div class="l4-btns"><button class="btn fake" id="l4f">◄ SAHTE</button><button class="btn" id="l4s">GÜVENLİ ►</button></div>' +
+      '</div>';
+    const q = s => $(s, ctx.root);
+    this.elP = q('#l4p'); this.bar = q('#l4bar'); this.barI = q('#l4bar i'); this.area = q('#l4a');
+    this.card = q('#l4c'); this.elK = q('#l4k'); this.elT = q('#l4t');
+    this.edgeL = q('.l4-edge.L'); this.edgeR = q('.l4-edge.R'); this.btnF = q('#l4f'); this.btnS = q('#l4s');
+    const c = this.card;
+    c.addEventListener('pointerdown', e => this.down(e));
+    c.addEventListener('pointermove', e => this.move(e));
+    c.addEventListener('pointerup', e => this.up(e, false));
+    c.addEventListener('pointercancel', e => this.up(e, true));
+    tap(this.btnF, () => this.answer('L'));
+    tap(this.btnS, () => this.answer('R'));
+    ctx.setHint(() => this.hint());
+  },
+
+  start() {
+    const ctx = this.ctx, card = this.card;
+    this.prepare(0);
+    if (ctx.replay) { this.showCard(); return; }
+    // Öğretici: sahte kart sola, güvenli kart sağa kayar
+    const demo = (t, k) => {
+      this.elK.textContent = k; this.elT.textContent = t; card.className = 'l4-card';
+      card.style.transition = 'none'; this.pose(0); card.style.opacity = '1';
+    };
+    demo('paypa1-login.com', 'URL');
+    Tutorial.run(ctx.root, [
+      { el: card, to: { el: this.area, fx: 0.1, fy: 0.5 }, drag: true, noWire: true, dur: 650, dir: -1, fast: true },
+      { el: card, to: { el: this.area, fx: 0.9, fy: 0.5 }, drag: true, noWire: true, dur: 650, dir: 1, fast: true }
+    ], {
+      dragStart: s => { card.style.transition = 'transform ' + (s.dur / 1000) + 's linear'; this.pose(s.dir * 100); },
+      drop: (s, i) => {
+        card.style.transition = 'transform .2s ease-in,opacity .2s'; card.style.opacity = '0';
+        if (i === 0) ctx.after(320, () => demo('github.com', 'URL'));
+      },
+      cleanup: () => { card.style.transition = 'none'; this.pose(0); card.style.opacity = '0'; }
+    }).then(() => { if (!ctx.dead) this.showCard(); });
+  },
+
+  // Round'u hazırla (kartlar seçilir, henüz gösterilmez)
+  prepare(r) {
+    const cfg = CONFIG.layer4;
+    this.round = r; this.idx = 0; this.miss = 0; this.res = []; this.busy = true;
+    this.ctx.setRound(r, cfg.cardMs.length);
+    this.cards = this.pickCards(r);
+    this.drawProg();
+    this.card.style.transition = 'none'; this.card.style.opacity = '0'; this.pose(0);
+    this.barI.style.transform = 'scaleX(1)'; this.bar.classList.remove('low');
+  },
+
+  // Zorluğa göre 6 kart: sahte/güvenli karışık, daha önce görülenler tekrar etmez
+  pickCards(r) {
+    const cfg = CONFIG.layer4, n = cfg.cardsPerRound, d = Math.min(r, 2);
+    const nFake = rand(Math.max(1, Math.floor(n / 3)), Math.min(n - 1, Math.ceil(2 * n / 3)));
+    const take = (isFake, k) => {
+      const all = PHISH.filter(c => c.d === d && c.f === isFake);
+      let pool = shuffle(all.filter(c => !this.used[c.t]));
+      if (pool.length < k) pool = shuffle(all);                   // yeterli yeni kart yoksa havuz sıfırlanır
+      const out = pool.slice(0, k);
+      out.forEach(c => { this.used[c.t] = 1; });
+      return out;
+    };
+    return shuffle(take(true, nFake).concat(take(false, n - nFake)));
+  },
+
+  drawProg() {
+    let h = '';
+    for (let i = 0; i < this.cards.length; i++) {
+      h += '<i class="' + (i < this.res.length ? (this.res[i] ? 'ok' : 'no') : i === this.idx ? 'cur' : '') + '"></i>';
+    }
+    this.elP.innerHTML = h;
+  },
+
+  showCard() {
+    const cfg = CONFIG.layer4, c = this.cards[this.idx], ms = cfg.cardMs[this.round], card = this.card;
+    this.elK.textContent = c.k; this.elT.textContent = c.t;
+    card.className = 'l4-card';
+    card.style.transition = 'none'; this.pose(0); card.style.opacity = '0'; void card.offsetWidth;
+    card.style.transition = 'opacity .15s'; card.style.opacity = '1';
+    this.drawProg();
+    this.busy = false; this.t0 = performance.now(); this.tEnd = this.t0 + ms;
+    this.bar.classList.remove('low');
+    const step = () => {
+      if (this.busy || this.ctx.dead) return;
+      const left = this.tEnd - performance.now(), ratio = clamp(left / ms, 0, 1);
+      this.barI.style.transform = 'scaleX(' + ratio + ')';
+      this.bar.classList.toggle('low', ratio < 0.3);
+      if (left <= 0) { this.timeout(); return; }
+      this.raf = requestAnimationFrame(step);
+    };
+    cancelAnimationFrame(this.raf);
+    this.raf = requestAnimationFrame(step);
+  },
+
+  // Kartı dx kadar kaydır, kenar etiketlerini yaklaştıkça göster
+  pose(dx) {
+    this.card.style.transform = 'translate3d(' + dx + 'px,0,0) rotate(' + (dx * 0.05) + 'deg)';
+    const a = clamp(Math.abs(dx) / CONFIG.layer4.swipeThr, 0, 1);
+    this.edgeL.style.opacity = dx < 0 ? a : 0;
+    this.edgeR.style.opacity = dx > 0 ? a : 0;
+  },
+
+  down(e) {
+    if (this.busy || this.ctx.locked || this.drag) return;
+    e.preventDefault();
+    this.drag = { id: e.pointerId, x: e.clientX }; this.dx = 0;
+    this.card.style.transition = 'none';
+    try { this.card.setPointerCapture(e.pointerId); } catch (err) {}
+  },
+  move(e) {
+    const d = this.drag;
+    if (!d || e.pointerId !== d.id) return;
+    this.dx = e.clientX - d.x; this.pose(this.dx);
+  },
+  up(e, cancel) {
+    const d = this.drag;
+    if (!d || e.pointerId !== d.id) return;
+    this.drag = null;
+    const dx = this.dx; this.dx = 0;
+    if (!cancel && Math.abs(dx) >= CONFIG.layer4.swipeThr) this.answer(dx < 0 ? 'L' : 'R');
+    else { this.card.style.transition = 'transform .15s'; this.pose(0); }
+  },
+
+  // dir: 'L' = sahte dedi, 'R' = güvenli dedi
+  answer(dir) {
+    const ctx = this.ctx, cfg = CONFIG.layer4, card = this.card;
+    if (this.busy || ctx.locked) return;
+    this.busy = true; cancelAnimationFrame(this.raf);
+    const c = this.cards[this.idx], right = (dir === 'L') === c.f;
+    this.res.push(right); this.drawProg();
+    if (right) {
+      card.classList.add('ok');
+      card.style.transition = 'transform .22s ease-in,opacity .22s';
+      card.style.transform = 'translate3d(' + (dir === 'L' ? -380 : 380) + 'px,0,0) rotate(' + (dir === 'L' ? -18 : 18) + 'deg)';
+      card.style.opacity = '0';
+      ctx.award(cfg.cardPoints, performance.now() - this.t0, cfg.cardMs[this.round]);
+      Sfx.tone(700 + this.idx * 60, 0.08, 'square', 0.06); Haptic.v(15);
+      ctx.after(300, () => this.advance());
+    } else {
+      card.style.transition = 'transform .15s'; this.pose(0); card.classList.add('no');
+      this.slip(c.f ? 'YEM YUTTUN' : 'FAZLA ŞÜPHECİ');
+      ctx.after(850, () => this.advance());
+    }
+  },
+
+  // Tek kartlık hata: can gitmez, ama round'daki hata payını yer
+  slip(msg) {
+    this.miss++;
+    Sfx.err(); Haptic.err(); this.ctx.flash(msg, 'bad');
+  },
+
+  timeout() {
+    this.busy = true; cancelAnimationFrame(this.raf);
+    this.res.push(false); this.drawProg();
+    this.card.classList.add('no');
+    this.slip('ZAMAN AŞIMI');
+    this.ctx.after(850, () => this.advance());
+  },
+
+  advance() {
+    const cfg = CONFIG.layer4;
+    if (this.miss > cfg.cardsPerRound - cfg.minCorrect) { this.failRound(); return; }
+    this.idx++;
+    if (this.idx >= this.cards.length) { this.endRound(); return; }
+    this.showCard();
+  },
+
+  endRound() {
+    const ctx = this.ctx, cfg = CONFIG.layer4;
+    ctx.award(cfg.roundPoints, 0, 0); ctx.ok();
+    const last = this.round >= cfg.cardMs.length - 1;
+    ctx.after(1000, () => { if (last) ctx.layerDone(); else { this.prepare(this.round + 1); this.showCard(); } });
+  },
+
+  // Çok fazla hata: bir can gider, round yeni kartlarla yeniden başlar
+  failRound() {
+    const ctx = this.ctx;
+    const lives = ctx.wrong('FIREWALL GÜLDÜ');
+    if (lives > 0) ctx.after(1100, () => { this.prepare(this.round); this.showCard(); });
+  },
+
+  hint() {
+    if (this.busy) return false;
+    const b = this.cards[this.idx].f ? this.btnF : this.btnS;       // doğru cevabın butonunu yak
+    b.classList.add('hint'); this.ctx.after(1700, () => b.classList.remove('hint'));
+    return true;
+  },
+
+  destroy() { cancelAnimationFrame(this.raf); this.busy = true; this.drag = null; }
+};
+
+/* ============ KATMAN 5: FIREWALL KOŞUSU ============ */
+// Zorluk CONFIG.layer5'ten ayarlanır: difficulty, speeds, ramp, spacing, maxShift, hitGraceMs
+const L5 = {
+  id: 5, name: 'FIREWALL KOŞUSU',
+  ctx: null, wave: 0, walls: [], lane: 1, W: 0, H: 0, laneW: 0, pktTop: 0, raf: 0, last: 0, running: false,
+  tWave: 0, dist: 0, prevGap: 1, hits: 0, inv: 0, slow: 0, g: null, laneEls: [],
+
+  init(ctx) {
+    const cfg = CONFIG.layer5;
+    this.ctx = ctx; this.wave = 0; this.walls = []; this.running = false; this.g = null; this.inv = 0; this.slow = 0;
+    this.lane = Math.floor(cfg.lanes / 2); this.laneEls = [];
+    ctx.root.innerHTML =
+      '<div class="l5w"><div class="tbar on" id="l5bar"><i></i></div>' +
+      '<div class="l5" id="l5"><div class="l5-lanes" id="l5l"></div></div></div>';
+    this.arena = $('#l5', ctx.root); this.barI = $('#l5bar i', ctx.root);
+    const lanes = $('#l5l', ctx.root);
+    for (let k = 0; k < cfg.lanes; k++) {
+      const d = document.createElement('div'); d.className = 'lane'; lanes.appendChild(d); this.laneEls.push(d);
+    }
+    const p = document.createElement('div'); p.className = 'pkt';
+    p.style.width = cfg.pktSize + 'px'; p.style.height = cfg.pktSize + 'px';
+    this.arena.appendChild(p); this.pkt = p;
+    this.arena.addEventListener('pointerdown', e => this.down(e));
+    this.arena.addEventListener('pointermove', e => this.move(e));
+    this.arena.addEventListener('pointerup', e => this.up(e));
+    this.arena.addEventListener('pointercancel', () => { this.g = null; });
+    ctx.setHint(() => this.hint());
+  },
+
+  start() {
+    const ctx = this.ctx, cfg = CONFIG.layer5;
+    this.measure();
+    if (ctx.replay) { this.startWave(0); return; }
+    // Öğretici: boşluk sağ şeritte, parmak oraya dokunur, duvar paketin yanından geçer
+    const gap = cfg.lanes - 1, w = this.mkWall(gap, this.H * 0.25);
+    Tutorial.run(ctx.root, [{ el: this.laneEls[gap], fy: 0.85, wait: 1500 }], {
+      press: () => {
+        this.setLane(gap);
+        w.el.style.transition = 'transform 1.4s linear'; w.y = this.H + 10; this.setY(w);
+      },
+      cleanup: () => { w.el.remove(); }
+    }).then(() => { if (!ctx.dead) this.startWave(0); });
+  },
+
+  measure() {
+    const cfg = CONFIG.layer5, a = this.arena;
+    this.W = a.clientWidth; this.H = a.clientHeight; this.laneW = this.W / cfg.lanes;
+    this.pktTop = this.H - cfg.pktSize - 22;
+    this.place(true);
+  },
+  onResize() { this.measure(); },
+
+  place(instant) {
+    const cfg = CONFIG.layer5, x = this.laneW * (this.lane + 0.5) - cfg.pktSize / 2;
+    if (instant) this.pkt.style.transition = 'none';
+    this.pkt.style.transform = 'translate3d(' + x + 'px,' + this.pktTop + 'px,0)';
+    if (instant) { void this.pkt.offsetWidth; this.pkt.style.transition = ''; }
+  },
+  setLane(l) {
+    if (l === this.lane) return;
+    this.lane = l; this.place(false);
+    Sfx.tone(300 + l * 90, 0.04, 'square', 0.04);
+  },
+
+  mkWall(gap, y) {
+    const cfg = CONFIG.layer5, el = document.createElement('div');
+    el.className = 'wall'; el.style.height = cfg.wallH + 'px';
+    for (let k = 0; k < cfg.lanes; k++) {
+      const c = document.createElement('i'); c.className = k === gap ? 'wc g' : 'wc'; el.appendChild(c);
+    }
+    this.arena.appendChild(el);
+    const o = { el: el, y: y, gap: gap, hit: false, passed: false };
+    this.setY(o);
+    return o;
+  },
+  setY(o) { o.el.style.transform = 'translate3d(0,' + o.y + 'px,0)'; },
+
+  // Boşluğun yeri: bir önceki boşluktan en fazla maxShift şerit uzakta, aynı şerit değil
+  pickGap() {
+    const cfg = CONFIG.layer5, ms = cfg.maxShift[this.wave], c = [];
+    for (let k = 0; k < cfg.lanes; k++) if (k !== this.prevGap && Math.abs(k - this.prevGap) <= ms) c.push(k);
+    const g = c.length ? pick(c) : rand(0, cfg.lanes - 1);
+    this.prevGap = g;
+    return g;
+  },
+
+  startWave(w) {
+    const ctx = this.ctx, cfg = CONFIG.layer5;
+    this.wave = w; ctx.setRound(w, cfg.waves);
+    this.walls.forEach(o => o.el.remove()); this.walls = [];
+    this.tWave = 0; this.dist = cfg.spacing[w] * 0.55; this.hits = 0; this.inv = 0;
+    this.lane = Math.floor(cfg.lanes / 2); this.prevGap = this.lane; this.place(true);
+    this.pkt.classList.remove('inv');
+    this.barI.style.transform = 'scaleX(0)';
+    this.running = true; this.last = 0;
+    cancelAnimationFrame(this.raf);
+    const step = t => {
+      if (!this.running || ctx.dead) return;
+      this.raf = requestAnimationFrame(step);
+      if (!this.last) { this.last = t; return; }
+      const dt = Math.min(t - this.last, 50); this.last = t;      // sekme arka plana gidince sıçrama olmasın
+      if (!ctx.locked) this.update(dt);
+    };
+    this.raf = requestAnimationFrame(step);
+  },
+
+  // dt: gerçek ms. Oyun mantığı burada (rAF'tan bağımsız)
+  update(dt) {
+    const ctx = this.ctx, cfg = CONFIG.layer5, w = this.wave;
+    if (this.slow > 0) { this.slow -= dt; if (this.slow <= 0) this.arena.classList.remove('slow'); }
+    if (this.inv > 0) { this.inv -= dt; if (this.inv <= 0) this.pkt.classList.remove('inv'); }
+    const d = this.slow > 0 ? dt * cfg.slowFactor : dt;            // yavaş çekimde oyun zamanı yavaşlar
+    this.tWave += d;
+    const prog = clamp(this.tWave / cfg.waveMs, 0, 1);
+    const dy = cfg.speeds[w] * cfg.difficulty * (1 + cfg.ramp * prog) * d / 1000;   // bu karede inen mesafe (px)
+    this.barI.style.transform = 'scaleX(' + prog + ')';
+    if (this.tWave < cfg.waveMs) {
+      this.dist += dy;
+      if (this.dist >= cfg.spacing[w]) {
+        this.dist -= cfg.spacing[w];
+        this.walls.push(this.mkWall(this.pickGap(), -cfg.wallH));
+      }
+    }
+    const pTop = this.pktTop + cfg.hitInset, pBot = this.pktTop + cfg.pktSize - cfg.hitInset;
+    for (let i = this.walls.length - 1; i >= 0; i--) {
+      const o = this.walls[i];
+      o.y += dy; this.setY(o);
+      if (!o.hit && !o.passed) {
+        const top = o.y, bot = o.y + cfg.wallH;
+        if (bot > pTop && top < pBot) {                              // paketle aynı yükseklikte
+          if (this.lane !== o.gap) this.crash(o);
+        } else if (top >= pBot) {                                    // güvenle geçti
+          o.passed = true; ctx.award(cfg.wallPoints, 0, 0);
+        }
+      }
+      if (o.y > this.H + 4) { o.el.remove(); this.walls.splice(i, 1); }
+    }
+    if (this.tWave >= cfg.waveMs && !this.walls.length) this.waveDone();
+  },
+
+  crash(o) {
+    const cfg = CONFIG.layer5, a = this.arena;
+    o.hit = true; o.el.classList.add('hit');
+    if (this.inv > 0) return;                                        // dokunulmazlık süresinde ceza yok
+    this.hits++; this.inv = cfg.hitGraceMs; this.pkt.classList.add('inv');
+    a.classList.remove('shake'); void a.offsetWidth; a.classList.add('shake');
+    this.ctx.wrong(pick(MSG.bad));
+  },
+
+  waveDone() {
+    const ctx = this.ctx, cfg = CONFIG.layer5;
+    this.running = false; cancelAnimationFrame(this.raf);
+    ctx.award(cfg.wavePoints + (this.hits === 0 ? cfg.flawlessPoints : 0), 0, 0); ctx.ok();
+    const last = this.wave >= cfg.waves - 1;
+    ctx.after(1100, () => { if (last) ctx.layerDone(); else this.startWave(this.wave + 1); });
+  },
+
+  // Girdi: kaydırınca bir şerit, dokununca o şeride git
+  down(e) {
+    if (!this.running || this.ctx.locked || this.g) return;
+    e.preventDefault();
+    this.g = { id: e.pointerId, x: e.clientX, from: this.lane, sw: false };
+    try { this.arena.setPointerCapture(e.pointerId); } catch (err) {}
+  },
+  move(e) {
+    const g = this.g, cfg = CONFIG.layer5;
+    if (!g || e.pointerId !== g.id || g.sw) return;
+    const dx = e.clientX - g.x;
+    if (Math.abs(dx) >= cfg.swipePx) { g.sw = true; this.setLane(clamp(g.from + (dx < 0 ? -1 : 1), 0, cfg.lanes - 1)); }
+  },
+  up(e) {
+    const g = this.g, cfg = CONFIG.layer5;
+    if (!g || e.pointerId !== g.id) return;
+    this.g = null;
+    if (g.sw || !this.running) return;
+    const x = e.clientX - this.arena.getBoundingClientRect().left;
+    this.setLane(clamp(Math.floor(x / this.laneW), 0, cfg.lanes - 1));
+  },
+
+  // İpucu: birkaç saniye yavaş çekim
+  hint() {
+    const cfg = CONFIG.layer5;
+    if (!this.running || this.slow > 0) return false;
+    this.slow = cfg.slowMs; this.arena.classList.add('slow');
+    return true;
+  },
+
+  destroy() { this.running = false; cancelAnimationFrame(this.raf); this.g = null; }
+};
+
+/* ============ KATMAN 6: ŞİFRE KIR (Mastermind) ============ */
+const L6 = {
+  id: 6, name: 'ŞİFRE KIR',
+  ctx: null, round: 0, N: 0, secret: [], cur: [], hist: [], hinted: {}, r: 0, busy: true, t0: 0,
+  rows: [], sec: [], pbtns: [],
+
+  init(ctx) {
+    const cfg = CONFIG.layer6, n = cfg.slots;
+    this.ctx = ctx; this.round = 0; this.busy = true; this.rows = []; this.sec = []; this.pbtns = [];
+    this.helpEl = null; this.helpAt = 0;
+    ctx.root.innerHTML =
+      '<div class="l6" style="--n:' + n + '">' +
+        '<div class="l6-secret" id="l6s"></div>' +
+        '<div class="l6-key"><span><b>●</b> DOĞRU YER</span><span><u>○</u> YANLIŞ YER</span><span>BOŞ = KODDA YOK</span></div>' +
+        '<div class="l6-board" id="l6b"></div>' +
+        '<div class="l6-pal" id="l6p"></div>' +
+        '<div class="l6-act"><button class="btn" id="l6u">SİL</button><button class="btn" id="l6g">KIR ►</button></div>' +
+      '</div>';
+    const q = s => $(s, ctx.root);
+    this.elS = q('#l6s'); this.elB = q('#l6b'); this.elP = q('#l6p'); this.btnU = q('#l6u'); this.btnG = q('#l6g');
+    // gizli kod satırı: "?" kutuları + sağda geri bildirim açıklaması
+    for (let i = 0; i < n; i++) {
+      const d = document.createElement('div'); d.className = 'l6-slot'; d.textContent = '?';
+      this.elS.appendChild(d); this.sec.push(d);
+    }
+    const leg = document.createElement('div'); leg.className = 'l6-leg';
+    leg.innerHTML = '<span>SONUÇ ▼</span>';
+    this.elS.appendChild(leg);
+    // tahmin satırları
+    this.elB.style.gridTemplateRows = 'repeat(' + cfg.tries + ',minmax(0,44px))';
+    for (let r = 0; r < cfg.tries; r++) {
+      const row = document.createElement('div'); row.className = 'l6-row';
+      const slots = [], pegs = [];
+      for (let i = 0; i < n; i++) {
+        const s = document.createElement('button'); s.className = 'l6-slot';
+        row.appendChild(s); slots.push(s);
+        tap(s, () => this.tapSlot(r, i));
+      }
+      const fb = document.createElement('div'); fb.className = 'l6-fb';
+      for (let i = 0; i < n; i++) { const p = document.createElement('i'); p.className = 'peg'; fb.appendChild(p); pegs.push(p); }
+      row.appendChild(fb); this.elB.appendChild(row);
+      this.rows.push({ el: row, slots: slots, pegs: pegs });
+    }
+    tap(this.btnU, () => this.undo());
+    tap(this.btnG, () => this.submit());
+    // Alt çubukta, 💡 butonunun yanında: oyun sırasında kuralları yeniden açar
+    const dock = $('.dock', ctx.root.closest('.screen'));
+    if (dock) {
+      const h = document.createElement('button'); h.className = 'btn hintbtn'; h.id = 'l6h'; h.textContent = '? NASIL';
+      dock.appendChild(h); this.btnH = h;
+      tap(h, () => {
+        if (this.busy || this.ctx.locked || this.helpEl) return;
+        this.busy = true;                                   // kart açıkken oyun durur
+        this.showHelp(() => { this.busy = false; });
+      });
+    }
+    ctx.setHint(() => this.hint());
+  },
+
+  // Geri bildirim hesabı: s = gizli kod, g = tahmin → b: doğru yerde (●), w: yanlış yerde (○)
+  calc(s, g) {
+    const cs = {}, cg = {};
+    let b = 0, w = 0;
+    for (let i = 0; i < s.length; i++) {
+      if (g[i] === s[i]) b++;
+      else { cs[s[i]] = (cs[s[i]] || 0) + 1; cg[g[i]] = (cg[g[i]] || 0) + 1; }
+    }
+    for (const k in cg) w += Math.min(cg[k], cs[k] || 0);
+    return { b: b, w: w };
+  },
+
+  // "Nasıl oynanır" kartı: örnek tahmin gerçek hesapla çiziliyor, ayarlar değişse bile tutarlı kalır
+  buildHelp() {
+    const cfg = CONFIG.layer6, n = cfg.slots, sy = cfg.symbols, secret = [];
+    for (let i = 0; i < n; i++) secret.push(i);
+    const guess = secret.slice();
+    if (n >= 3) { guess[1] = secret[2]; guess[2] = secret[1]; }          // iki sembolün yerini değiştir
+    const fb = this.calc(secret, guess);
+    const box = (k, cls) => '<i class="hx-sym' + (cls ? ' ' + cls : '') + '" style="color:' + sy[k].c + '">' + SYM[sy[k].s] + '</i>';
+    const sec = secret.map(k => box(k)).join('');
+    const gus = guess.map((k, i) => box(k, k === secret[i] ? 'ok' : 'mv')).join('');
+    let pegs = '';
+    for (let i = 0; i < n; i++) pegs += '<i class="peg' + (i < fb.b ? ' b' : i < fb.b + fb.w ? ' w' : '') + '"></i>';
+    const el = document.createElement('div'); el.className = 'l6-help';
+    el.innerHTML =
+      '<div class="hx-t">ŞİFRE KIR: NASIL OYNANIR?</div>' +
+      '<div class="hx-s"><i class="hx-n">1</i><span>Gizli bir kod var: <b>' + n + ' sembol</b>, sıraları da önemli.' + (cfg.repeat ? '' : ' Aynı sembol iki kez geçmez.') + ' Onu bulmalısın.</span></div>' +
+      '<div class="hx-s"><i class="hx-n">2</i><span>Alttan <b>' + n + ' sembol seç</b>, sonra <b>KIR ►</b> tuşuna bas.</span></div>' +
+      '<div class="hx-s"><i class="hx-n">3</i><span>Sağda çıkan noktalar <b>ipucu</b> verir. Örnek:</span></div>' +
+      '<div class="hx-ex">' +
+        '<div class="hx-row"><span class="lbl">GİZLİ</span>' + sec + '</div>' +
+        '<div class="hx-row"><span class="lbl">TAHMİN</span>' + gus + '<span class="l6-fb">' + pegs + '</span></div>' +
+        '<div class="hx-leg"><b>●</b> sembol doğru, <b>yeri de doğru</b> (' + fb.b + ' tane)</div>' +
+        '<div class="hx-leg"><u>○</u> sembol doğru ama <b>yeri yanlış</b> (' + fb.w + ' tane)</div>' +
+        '<div class="hx-leg">boş nokta → o sembol kodda yok</div>' +
+      '</div>' +
+      '<div class="hx-s"><i class="hx-n">4</i><span>Noktalara bakıp tahmini düzelt. <b>' + cfg.tries + ' hakkın</b> var, bitince 1 can gider. Takılırsan 💡 bir sembolü açar (−' + CONFIG.hintPenalty + ' puan).</span></div>' +
+      '<button class="btn primary" id="l6ok">ANLADIM ►</button>';
+    return el;
+  },
+
+  showHelp(onClose) {
+    if (this.helpEl) return;
+    const el = this.buildHelp();
+    this.helpEl = el; this.helpAt = performance.now();
+    this.ctx.root.appendChild(el);
+    tap($('#l6ok', el), () => {
+      if (this.helpEl !== el) return;
+      el.remove(); this.helpEl = null;
+      this.t0 += performance.now() - this.helpAt;           // hız bonusu süresi kart açıkken akmasın
+      Sfx.click();
+      if (onClose) onClose();
+    });
+  },
+
+  start() {
+    const ctx = this.ctx;
+    this.startRound(0);
+    if (ctx.replay) return;
+    this.busy = true;
+    this.showHelp(() => this.runDemo());                    // önce kural kartı, "ANLADIM"dan sonra parmak gösterimi
+  },
+
+  // Öğretici: parmak sembolleri sırayla seçer, KIR'a basar, geri bildirim yanar
+  runDemo() {
+    const ctx = this.ctx, cfg = CONFIG.layer6;
+    this.busy = true;
+    const steps = [], cnt = Math.min(cfg.slots, this.pbtns.length);
+    for (let k = 0; k < cnt; k++) steps.push({ el: this.pbtns[k], pal: k, fast: true });
+    steps.push({ el: this.btnG, go: true, fast: true });
+    Tutorial.run(ctx.root, steps, {
+      press: s => {
+        if (s.pal != null) this.place(s.pal);
+        else { this.paintFb(0, { b: 1, w: 2 }); Sfx.ok(); }
+      },
+      cleanup: () => { this.cur = this.cur.map(() => -1); this.paint(); this.paintFb(0, { b: 0, w: 0 }); }
+    }).then(() => { if (!ctx.dead) { this.busy = false; this.t0 = performance.now(); } });
+  },
+
+  startRound(r) {
+    const cfg = CONFIG.layer6, n = cfg.slots, N = cfg.rounds[r].symbols;
+    this.round = r; this.N = N; this.ctx.setRound(r, cfg.rounds.length);
+    // palet
+    this.elP.innerHTML = ''; this.pbtns = [];
+    for (let k = 0; k < N; k++) {
+      const sy = cfg.symbols[k], b = document.createElement('button');
+      b.className = 'pbtn'; b.style.setProperty('--pc', sy.c); b.innerHTML = SYM[sy.s];
+      this.elP.appendChild(b); this.pbtns.push(b);
+      tap(b, () => this.tapPal(k));
+    }
+    // gizli kod
+    const rep = cfg.repeat || N < n, all = [];
+    for (let i = 0; i < N; i++) all.push(i);
+    this.secret = [];
+    if (rep) { for (let i = 0; i < n; i++) this.secret.push(rand(0, N - 1)); }
+    else this.secret = shuffle(all).slice(0, n);
+    // tahtayı temizle
+    this.sec.forEach(d => { d.textContent = '?'; d.style.color = ''; d.className = 'l6-slot'; });
+    this.rows.forEach(rw => {
+      rw.el.className = 'l6-row';
+      rw.slots.forEach(s => { s.innerHTML = ''; s.className = 'l6-slot'; s.style.color = ''; });
+      rw.pegs.forEach(p => { p.className = 'peg'; });
+    });
+    this.hist = []; this.hinted = {}; this.r = 0; this.busy = false; this.t0 = performance.now();
+    this.newRow();
+  },
+
+  newRow() {
+    const n = CONFIG.layer6.slots;
+    this.cur = [];
+    for (let i = 0; i < n; i++) this.cur.push(this.hinted[i] !== undefined ? this.hinted[i] : -1);   // ipucuyla açılanlar önceden dolu gelir
+    this.rows.forEach((rw, i) => rw.el.classList.toggle('cur', i === this.r));
+    this.paint();
+  },
+
+  paint() {
+    const rw = this.rows[this.r];
+    for (let i = 0; i < this.cur.length; i++) this.setSlot(rw.slots[i], this.cur[i], this.hinted[i] !== undefined);
+    this.btnG.classList.toggle('ready', this.cur.indexOf(-1) < 0);
+  },
+  setSlot(el, k, hinted) {
+    const sy = k >= 0 ? CONFIG.layer6.symbols[k] : null;
+    el.innerHTML = sy ? SYM[sy.s] : ''; el.style.color = sy ? sy.c : '';
+    el.classList.toggle('hinted', !!hinted);
+  },
+
+  tapPal(k) { if (this.busy || this.ctx.locked) return; this.place(k); },
+  place(k) {                                                          // ilk boş kutuya yerleştir
+    const i = this.cur.indexOf(-1);
+    if (i < 0) { Sfx.tone(200, 0.05, 'square', 0.04); return; }
+    this.cur[i] = k; this.paint(); Sfx.tone(480 + k * 60, 0.05, 'square', 0.05);
+  },
+  tapSlot(r, i) {                                                     // dolu kutuya dokun = boşalt
+    if (this.busy || this.ctx.locked || r !== this.r || this.hinted[i] !== undefined || this.cur[i] < 0) return;
+    this.cur[i] = -1; this.paint(); Sfx.click();
+  },
+  undo() {
+    if (this.busy || this.ctx.locked) return;
+    for (let i = this.cur.length - 1; i >= 0; i--) {
+      if (this.cur[i] >= 0 && this.hinted[i] === undefined) { this.cur[i] = -1; this.paint(); Sfx.click(); return; }
+    }
+  },
+
+  score(g) { return this.calc(this.secret, g); },
+  paintFb(r, fb) {
+    const pegs = this.rows[r].pegs;
+    for (let i = 0; i < pegs.length; i++) pegs[i].className = 'peg' + (i < fb.b ? ' b' : i < fb.b + fb.w ? ' w' : '');
+  },
+
+  submit() {
+    const ctx = this.ctx, cfg = CONFIG.layer6;
+    if (this.busy || ctx.locked) return;
+    if (this.cur.indexOf(-1) >= 0) {                                  // eksik satır: sadece titret
+      const b = this.btnG; b.classList.remove('shake'); void b.offsetWidth; b.classList.add('shake');
+      Sfx.tone(200, 0.08, 'square', 0.05); return;
+    }
+    const g = this.cur.slice(), fb = this.score(g);
+    this.hist.push(g); this.paintFb(this.r, fb);
+    Sfx.tone(380 + fb.b * 110, 0.14, 'square', 0.06);
+    if (fb.b === cfg.slots) { this.win(); return; }
+    this.r++;
+    if (this.r >= cfg.tries) { this.lose(); return; }
+    this.newRow();
+  },
+
+  reveal(ok) {
+    const cfg = CONFIG.layer6;
+    this.rows.forEach(rw => rw.el.classList.remove('cur'));
+    this.sec.forEach((d, i) => {
+      const sy = cfg.symbols[this.secret[i]];
+      d.innerHTML = SYM[sy.s]; d.style.color = sy.c; d.className = 'l6-slot rev' + (ok ? '' : ' bad');
+    });
+  },
+
+  win() {
+    const ctx = this.ctx, cfg = CONFIG.layer6;
+    this.busy = true; this.reveal(true);
+    const left = cfg.tries - (this.r + 1);                            // artan hak puana eklenir
+    ctx.award(cfg.solvePoints + left * cfg.triePoints, performance.now() - this.t0, cfg.solvePar);
+    ctx.ok();
+    const last = this.round >= cfg.rounds.length - 1;
+    ctx.after(1500, () => { if (last) ctx.layerDone(); else this.startRound(this.round + 1); });
+  },
+
+  // Haklar bitti: kod gösterilir, bir can gider, yeni kodla aynı round
+  lose() {
+    const ctx = this.ctx;
+    this.busy = true; this.reveal(false);
+    const lives = ctx.wrong('KİLİTLENDİ');
+    if (lives > 0) ctx.after(2000, () => this.startRound(this.round));
+  },
+
+  // İpucu: gizli kodun bir hanesini açar (satır satır kalıcı)
+  hint() {
+    if (this.busy) return false;
+    const n = CONFIG.layer6.slots, free = [];
+    for (let i = 0; i < n; i++) if (this.hinted[i] === undefined) free.push(i);
+    if (!free.length) return false;
+    const wrong = free.filter(i => this.cur[i] !== this.secret[i]);   // zaten doğru koyduğu haneyi harcama
+    const i = pick(wrong.length ? wrong : free);
+    this.hinted[i] = this.secret[i]; this.cur[i] = this.secret[i]; this.paint();
+    return true;
+  },
+
+  destroy() { this.busy = true; this.helpEl = null; }
+};
+
+const Layers = [L1, L2, L3, L4, L5, L6];
+
+/* ============ EKRAN DURUMLARI ============ */
+const States = {
+  intro: {
+    enter() {
+      Hud.mode('idle');
+      const best = parseInt(Store.get('hk_best') || '0', 10) || 0;
+      const s = Game.screen('intro',
+        '<div class="logo glitch" data-text="SIZ.EXE">SIZ.EXE</div>' +
+        '<p class="story">SİSTEME SIZ.<br>6 KATMAN.<br>SÜRE İŞLİYOR.</p>' +
+        '<button class="btn primary" id="start">BAŞLA<span class="caret"></span></button>' +
+        '<div class="best">' + (best ? 'REKOR ' + String(best).padStart(5, '0') : '') + '</div>');
+      tap($('#start', s), () => { Sfx.click(); Game.go('nick'); });
+    }
+  },
+
+  nick: {
+    enter() {
+      Hud.mode('idle');
+      const saved = Game.nick || Store.get('hk_nick') || '';
+      let sel = CONFIG.nicknames.indexOf(saved) >= 0 ? saved : '';
+      const s = Game.screen('nick',
+        '<h2 class="h2 glitch" data-text="TAKMA AD SEÇ">TAKMA AD SEÇ</h2>' +
+        '<div class="chips">' + CONFIG.nicknames.map(n => '<button class="chip' + (n === sel ? ' sel' : '') + '" data-n="' + n + '">' + n + '</button>').join('') + '</div>' +
+        '<button class="btn primary" id="go"' + (sel ? '' : ' disabled') + '>GİR ►</button>');
+      const go = $('#go', s);
+      s.querySelectorAll('.chip').forEach(c => tap(c, () => {
+        sel = c.dataset.n;
+        s.querySelectorAll('.chip').forEach(x => x.classList.toggle('sel', x === c));
+        go.disabled = false; Sfx.click();
+      }));
+      tap(go, () => { if (!sel) return; Game.nick = sel; Store.set('hk_nick', sel); Sfx.ok(); Game.begin(); });
+    }
+  },
+
+  transition: {
+    enter(arg) {
+      const i = arg.index;
+      Game.layerIndex = i; Game.lives = CONFIG.lives; Game.hints = CONFIG.hintsPerLayer;
+      Hud.mode('play'); Hud.refresh();
+      Game.screen('trans',
+        '<div class="tr-n glitch" data-text="LAYER ' + (i + 1) + '">LAYER ' + (i + 1) + '</div>' +
+        '<div class="tr-u">UNLOCKED</div>' +
+        '<div class="tr-name">' + Layers[i].name + '</div>' +
+        '<div class="tprog"><i style="animation-duration:' + CONFIG.transitionMs + 'ms"></i></div>');
+      Sfx.unlock(); Haptic.ok();
+      Game.later(() => Game.go('layer', { index: i }), CONFIG.transitionMs);
+    }
+  },
+
+  layer: {
+    enter(arg) {
+      const i = arg.index, replay = !!arg.replay, layer = Layers[i];
+      Game.layerIndex = i; Game.layer = layer; Game.locked = false;
+      Game.lives = CONFIG.lives; Game.hints = CONFIG.hintsPerLayer;
+      if (replay) Game.score = Game.layerScore0; else Game.layerScore0 = Game.score;   // tekrarda skor katman başına döner
+      Hud.mode('play'); Hud.refresh();
+      const s = Game.screen('layer',
+        '<div class="lhead"><span>' + layer.name + '</span><span class="pips" id="pips"></span></div>' +
+        '<div class="play" id="play"></div>' +
+        '<div class="dock"><button class="btn hintbtn" id="hint">💡 <b id="hintN">' + Game.hints + '</b></button></div>');
+      tap($('#hint', s), () => Game.useHint());
+      Game.updateHint();
+      Game.ctx = Game.makeCtx(s, replay);
+      try { layer.init(Game.ctx); layer.start(); } catch (err) { if (window.console) console.error(err); }
+    },
+    exit() { Game.destroyLayer(); }
+  },
+
+  // Tüm canlar bitti: KAYBETTİN ekranı + tekrar oyna
+  gameover: {
+    enter() {
+      Game.locked = true;
+      Hud.mode('idle');
+      const ms = performance.now() - Game.t0, score = Game.score, idx = Game.layerIndex;
+      let hearts = '';
+      for (let i = 0; i < CONFIG.lives; i++) hearts += '<span class="heart lost">' + HEART + '</span>';
+      const s = Game.screen('lose',
+        '<h1 class="lose-t glitch" data-text="KAYBETTİN">KAYBETTİN</h1>' +
+        '<div class="lose-hearts rv">' + hearts + '</div>' +
+        '<p class="lose-sub rv" style="animation-delay:.15s">TÜM CANLARIN BİTTİ<br>FIREWALL KAZANDI</p>' +
+        '<div class="lose-nick rv" style="animation-delay:.3s">' + (Game.nick || 'DEBUG') + '</div>' +
+        '<div class="fin-panel rv" style="animation-delay:.45s">' +
+          '<div class="fin-row"><span>KATMAN</span><b>' + (idx + 1) + '/' + Layers.length + '</b></div>' +
+          '<div class="fin-row"><span>SKOR</span><b>' + score + '</b></div>' +
+          '<div class="fin-row"><span>SÜRE</span><b>' + fmtTime(ms) + '</b></div>' +
+        '</div>' +
+        '<button class="btn primary rv" id="retry" style="animation-delay:.6s" disabled>TEKRAR OYNA ►</button>' +
+        '<div class="foot">' + CONFIG.footer + '</div>');
+      Sfx.lose(); Haptic.err();
+
+      // Oyuncu son saniyelerde ekrana hızlı hızlı dokunuyor olabilir: buton kısa süre kilitli kalır
+      const btn = $('#retry', s);
+      Game.later(() => { btn.disabled = false; }, CONFIG.retryLockMs);
+      tap(btn, () => { if (btn.disabled) return; Sfx.ok(); Game.begin(); });   // aynı takma adla baştan başlar
+    }
+  },
+
+  final: {
+    enter() {
+      Game.t1 = performance.now(); Game.locked = true;
+      Hud.mode('idle');
+      const ms = Game.t1 - Game.t0, secs = Math.floor(ms / 1000), score = Game.score;
+      let rank = CONFIG.ranks[0];
+      CONFIG.ranks.forEach(r => { if (score >= r.min) rank = r; });
+      const code = makeCode(Game.nick, score, secs);
+      const best = parseInt(Store.get('hk_best') || '0', 10) || 0;
+      const isNew = score > best;
+      if (isNew) Store.set('hk_best', String(score));
+      const s = Game.screen('final',
+        '<canvas id="rain"></canvas>' +
+        '<div class="fin-body">' +
+          '<h1 class="fin-t glitch" data-text="ACCESS GRANTED">ACCESS GRANTED</h1>' +
+          '<div class="fin-nick rv" style="animation-delay:.2s">' + Game.nick + '</div>' +
+          '<div class="fin-panel">' +
+            '<div class="fin-row rv" style="animation-delay:.35s"><span>SÜRE</span><b>' + fmtTime(ms) + '</b></div>' +
+            '<div class="fin-row rv" style="animation-delay:.55s"><span>SKOR</span><b>' + score + '</b></div>' +
+            '<div class="fin-row rv" style="animation-delay:.75s"><span>RÜTBE</span><b class="rank">' + rank.name + '</b></div>' +
+          '</div>' +
+          '<div class="fin-code rv" style="animation-delay:1s"><span>KOD</span><b id="code">······</b></div>' +
+          '<div class="fin-new">' + (isNew && best > 0 ? 'YENİ REKOR!' : '') + '</div>' +
+          '<button class="btn primary hold" id="again"><i class="hfill"></i><span>TEKRAR OYNA</span><small>BASILI TUT</small></button>' +
+          '<div class="foot">' + CONFIG.footer + '</div>' +
+        '</div>');
+      Rain.start($('#rain', s));
+      Sfx.win(); Haptic.ok();
+
+      // Kod "çözülüyor" animasyonu: harfler sırayla yerine oturur (bitince sabit kalır)
+      const el = $('#code', s), CH = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789', last = 8 + (code.length - 1) * 2;
+      let n = 0;
+      const spin = () => {
+        n++;
+        let t = '';
+        for (let i = 0; i < code.length; i++) t += n >= 8 + i * 2 ? code[i] : CH[rand(0, CH.length - 1)];
+        el.textContent = t;
+        if (n < last) Game.later(spin, 80);
+      };
+      Game.later(spin, 1000);
+
+      // Yanlışlıkla yeniden başlamasın: butona ~1 sn basılı tutmak gerekir
+      const btn = $('#again', s), fill = $('.hfill', s), HOLD = 1000;
+      let timer = 0;
+      const stop = () => {
+        clearTimeout(timer); btn.classList.remove('press');
+        fill.style.transition = 'transform .15s'; fill.style.transform = 'scaleX(0)';
+      };
+      btn.addEventListener('pointerdown', e => {
+        e.preventDefault(); Sfx.click();
+        fill.style.transition = 'transform ' + HOLD + 'ms linear'; fill.style.transform = 'scaleX(1)';
+        timer = Game.later(() => { Sfx.ok(); Game.go('nick'); }, HOLD);
+      });
+      ['pointerup', 'pointercancel', 'pointerleave'].forEach(t => btn.addEventListener(t, stop));
+    },
+    exit() { Rain.stop(); }
+  }
+};
+
+/* ============ GAME (durum makinesi + ortak sistemler) ============ */
+const Game = {
+  state: null, layerIndex: 0, layer: null, ctx: null,
+  lives: 3, hints: 2, score: 0, layerScore0: 0, nick: '', t0: 0, t1: 0,
+  locked: false, pending: [], stage: null, flashEl: null,
+
+  init() { this.stage = $('#stage'); this.flashEl = $('#flash'); },
+
+  later(fn, ms) {
+    const id = setTimeout(() => { this.pending = this.pending.filter(x => x !== id); fn(); }, ms);
+    this.pending.push(id); return id;
+  },
+  clearPending() { this.pending.forEach(clearTimeout); this.pending = []; },
+
+  go(name, arg) {
+    const prev = States[this.state];
+    if (prev && prev.exit) prev.exit();
+    this.clearPending();
+    this.state = name;
+    States[name].enter(arg || {});
+  },
+
+  screen(cls, html) {
+    const s = document.createElement('section');
+    s.className = 'screen ' + cls; s.innerHTML = html;
+    this.stage.innerHTML = ''; this.stage.appendChild(s);
+    return s;
+  },
+
+  begin() { this.score = 0; this.t0 = performance.now(); this.go('transition', { index: 0 }); },
+
+  makeCtx(screen, replay) {
+    const ctx = {
+      root: $('#play', screen), replay: replay, dead: false, hintFn: null, _t: [],
+      get locked() { return Game.locked; },
+      after(ms, fn) {
+        const id = setTimeout(() => { if (!ctx.dead) fn(); }, ms);
+        ctx._t.push(id); return id;
+      },
+      clear() { ctx.dead = true; ctx._t.forEach(clearTimeout); ctx._t = []; },
+      setRound(i, n) {
+        const el = $('#pips', screen); if (!el) return;
+        let h = ''; for (let k = 0; k < n; k++) h += '<i class="pip' + (k < i ? ' full' : k === i ? ' cur' : '') + '"></i>';
+        el.innerHTML = h;
+      },
+      award(b, e, p) { return Game.award(b, e, p); },
+      wrong(m) { return Game.wrong(m); },
+      flash(t, k, ms) { Game.flash(t, k, ms); },
+      ok() { Sfx.ok(); Haptic.ok(); Game.flash(pick(MSG.ok), 'ok'); },
+      layerDone() { Game.layerComplete(); },
+      setHint(fn) { ctx.hintFn = fn; }
+    };
+    return ctx;
+  },
+
+  destroyLayer() {
+    Tutorial.cancel();
+    if (this.layer && this.ctx) {
+      try { this.layer.destroy(); } catch (e) {}
+      this.ctx.clear();
+    }
+    this.ctx = null;
+  },
+
+  award(base, elapsed, par) {
+    let bonus = 0;
+    if (par > 0) bonus = Math.round(base * CONFIG.score.speedFactor * clamp(1 - elapsed / par, 0, 1));
+    const total = base + bonus;
+    this.score += total; Hud.setScore(true); Hud.float('+' + total, 'var(--g)');
+    return total;
+  },
+
+  // Hata: bir can gider. Son can da giderse girdi kilitlenir ve KAYBETTİN ekranına geçilir.
+  // Kalan canı döndürür (0 dönerse çağıran katman kendi akışını sürdürmemeli).
+  wrong(msg) {
+    if (this.locked) return this.lives;
+    Sfx.err(); Haptic.err();
+    this.flash(msg || pick(MSG.bad), 'bad');
+    this.lives = Math.max(0, this.lives - 1); Hud.setLives(true);
+    if (this.lives === 0) {
+      this.locked = true;
+      this.later(() => this.flash('SİSTEM ÇÖKTÜ', 'warn', 800), 700);
+      this.later(() => this.go('gameover'), CONFIG.gameOverMs);
+    }
+    return this.lives;
+  },
+
+  useHint() {
+    if (this.locked || !this.ctx) return;
+    const fn = this.ctx.hintFn;
+    if (this.hints <= 0 || !fn) { Sfx.err(); return; }
+    if (fn() === false) return;                 // kullanılamadı: hak harcanmaz
+    this.hints--; this.updateHint();
+    this.score = Math.max(0, this.score - CONFIG.hintPenalty);
+    Hud.setScore(false); Hud.float('−' + CONFIG.hintPenalty, 'var(--r)');
+    Sfx.tone(880, 0.08, 'sine', 0.07);
+  },
+
+  updateHint() {
+    const n = $('#hintN'), b = $('#hint');
+    if (n) n.textContent = this.hints;
+    if (b) b.dataset.n = this.hints;
+  },
+
+  flash(text, kind, ms) {
+    const f = this.flashEl, col = { ok: 'var(--g)', bad: 'var(--r)', warn: 'var(--a)', info: 'var(--c)' };
+    f.firstChild.textContent = text;
+    f.style.setProperty('--fc', col[kind || 'ok']);
+    f.classList.remove('show'); void f.offsetWidth;
+    f.style.animationDuration = (ms || CONFIG.flashMs) + 'ms';
+    f.classList.add('show');
+  },
+
+  layerComplete() {
+    if (this.locked) return;
+    this.locked = true;
+    const next = this.layerIndex + 1;
+    if (next >= Layers.length) this.go('final'); else this.go('transition', { index: next });
+  },
+
+  jump(i) {                                     // debug: istenen katmana atla
+    if (!this.nick) this.nick = 'DEBUG';
+    this.score = 0; this.t0 = performance.now();
+    this.go('layer', { index: i });
+  },
+
+  onResize() {
+    if (this.layer && this.state === 'layer' && this.layer.onResize) this.layer.onResize();
+    if (this.state === 'final') Rain.fit();
+  }
+};
+
+/* ============ DEBUG MENÜSÜ (?debug=1) ============ */
+function setupDebug() {
+  if (!CONFIG.allowDebug || !/[?&]debug=1(&|$)/.test(location.search)) return;
+  const app = $('#app');
+  const btn = document.createElement('button'); btn.id = 'dbgBtn'; btn.textContent = 'DBG';
+  const pan = document.createElement('div'); pan.id = 'dbg'; pan.hidden = true;
+  pan.innerHTML =
+    '<div class="dbg-t">DEBUG</div>' +
+    '<div class="dbg-g">' + Layers.map((l, i) => '<button class="btn" data-l="' + i + '">L' + (i + 1) + '</button>').join('') + '</div>' +
+    '<div class="dbg-g">' +
+      '<button class="btn" data-a="intro">INTRO</button><button class="btn" data-a="nick">NICK</button><button class="btn" data-a="final">FINAL</button>' +
+      '<button class="btn" data-a="lose">KAYBETTİN</button><button class="btn" data-a="life">CAN −1</button><button class="btn" data-a="skip">KATMANI GEÇ</button>' +
+      '<button class="btn" data-a="close">KAPAT</button>' +
+    '</div>';
+  app.appendChild(btn); app.appendChild(pan);
+  tap(btn, () => { pan.hidden = !pan.hidden; });
+  pan.querySelectorAll('button').forEach(b => tap(b, () => {
+    const a = b.dataset.a;
+    if (b.dataset.l != null) { pan.hidden = true; Game.jump(parseInt(b.dataset.l, 10)); return; }
+    if (a === 'close') { pan.hidden = true; return; }
+    if (a === 'intro') { pan.hidden = true; Game.go('intro'); }
+    else if (a === 'nick') { pan.hidden = true; Game.go('nick'); }
+    else if (a === 'final') {
+      pan.hidden = true;
+      if (!Game.nick) Game.nick = 'DEBUG';
+      if (!Game.score) Game.score = 2345;
+      Game.t0 = performance.now() - 754000;
+      Game.go('final');
+    }
+    else if (a === 'lose') {
+      pan.hidden = true;
+      if (!Game.nick) Game.nick = 'DEBUG';
+      if (!Game.score) Game.score = 1234;
+      Game.t0 = performance.now() - 95000;
+      Game.go('gameover');
+    }
+    else if (a === 'life') { if (Game.state === 'layer') Game.wrong('DEBUG'); }
+    else if (a === 'skip') { pan.hidden = true; if (Game.state === 'layer') Game.layerComplete(); }
+  }));
+}
+
+/* ============ BOOT ============ */
+function fit() { document.documentElement.style.setProperty('--vh', (window.innerHeight * 0.01) + 'px'); }
+
+function boot() {
+  const c = CONFIG.colors, rs = document.documentElement.style;
+  rs.setProperty('--bg', c.bg); rs.setProperty('--g', c.green); rs.setProperty('--r', c.red); rs.setProperty('--a', c.amber); rs.setProperty('--c', c.cyan);
+  fit();
+  window.addEventListener('resize', () => { fit(); Game.onResize(); });
+  window.addEventListener('orientationchange', () => setTimeout(() => { fit(); Game.onResize(); }, 200));
+
+  // Zoom, kaydırma, seçme, bağlam menüsü engelleri
+  ['gesturestart', 'gesturechange', 'gestureend', 'contextmenu', 'selectstart', 'dragstart', 'dblclick'].forEach(t =>
+    document.addEventListener(t, e => e.preventDefault(), { passive: false }));
+  document.addEventListener('touchmove', e => e.preventDefault(), { passive: false });
+
+  // AudioContext ilk dokunuşta başlar (iOS için pointerup/touchend de dinlenir)
+  ['pointerdown', 'pointerup', 'touchend'].forEach(t => document.addEventListener(t, () => Sfx.init(), { passive: true, capture: true }));
+
+  Game.init(); Hud.init(); setupDebug();
+  Game.nick = Store.get('hk_nick') || '';
+  Game.go('intro');
+}
+boot();
+</script>
+</body>
+</html>
